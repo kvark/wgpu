@@ -35,7 +35,7 @@ impl<T> Clone for Id<T> {
 
 impl<T> fmt::Debug for Id<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        self.0.fmt(formatter)
+        self.unzip().fmt(formatter)
     }
 }
 
