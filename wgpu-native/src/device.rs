@@ -1910,7 +1910,8 @@ pub fn device_create_swap_chain<B: GfxBackend>(
         assert!(suf.supports_queue_family(&adapter.raw.queue_families[0]));
         suf.compatibility(&adapter.raw.physical_device)
     };
-    let num_frames = *caps.image_count.start(); //TODO: configure?
+    //Note: Metal doesn't really like us using 2 images there
+    let num_frames = 3.min(*caps.image_count.end()); //TODO: configure?
     let config = desc.to_hal(num_frames);
 
     if let Some(formats) = formats {
