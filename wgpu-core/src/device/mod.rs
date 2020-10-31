@@ -19,7 +19,6 @@ use crate::{
 use arrayvec::ArrayVec;
 use copyless::VecHelper as _;
 use gfx_descriptor::DescriptorAllocator;
-use gfx_memory::{Block, Heaps};
 use hal::{
     command::CommandBuffer as _,
     device::Device as _,
@@ -42,6 +41,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
+pub mod alloc;
 mod life;
 mod queue;
 #[cfg(any(feature = "trace", feature = "replay"))]
@@ -163,34 +163,25 @@ type BufferMapPendingCallback = (resource::BufferMapOperation, resource::BufferM
 fn map_buffer<B: hal::Backend>(
     raw: &B::Device,
     buffer: &mut resource::Buffer<B>,
-    sub_range: hal::buffer::SubRange,
+    offset: hal::buffer::Offset,
+    size: BufferAddress,
     kind: HostMap,
 ) -> Result<ptr::NonNull<u8>, resource::BufferAccessError> {
-    let &mut (_, ref mut memory) = buffer
+    let &mut (_, ref mut block) = buffer
         .raw
         .as_mut()
         .ok_or(resource::BufferAccessError::Destroyed)?;
-    let (ptr, segment, needs_sync) = {
-        let segment = hal::memory::Segment {
-            offset: sub_range.offset,
-            size: sub_range.size,
-        };
-        let mapped = memory.map(raw, segment)?;
-        let mr = mapped.range();
-        let segment = hal::memory::Segment {
-            offset: mr.start,
-            size: Some(mr.end - mr.start),
-        };
-        (mapped.ptr(), segment, !mapped.is_coherent())
-    };
+    let ptr = block.map(raw, offset, size).map_err(DeviceError::from)?;
 
     buffer.sync_mapped_writes = match kind {
-        HostMap::Read if needs_sync => unsafe {
-            raw.invalidate_mapped_memory_ranges(iter::once((memory.memory(), segment)))
-                .or(Err(DeviceError::OutOfMemory))?;
+        HostMap::Read if !block.is_coherent() => {
+            block.invalidate_range(raw, offset, Some(size))?;
             None
-        },
-        HostMap::Write if needs_sync => Some(segment),
+        }
+        HostMap::Write if !block.is_coherent() => Some(hal::memory::Segment {
+            offset,
+            size: Some(size),
+        }),
         _ => None,
     };
     Ok(ptr)
@@ -205,10 +196,7 @@ fn unmap_buffer<B: hal::Backend>(
         .as_ref()
         .ok_or(resource::BufferAccessError::Destroyed)?;
     if let Some(segment) = buffer.sync_mapped_writes.take() {
-        unsafe {
-            raw.flush_mapped_memory_ranges(iter::once((memory.memory(), segment)))
-                .or(Err(DeviceError::OutOfMemory))?;
-        }
+        memory.flush_range(raw, segment.offset, segment.size)?;
     }
     Ok(())
 }
@@ -227,7 +215,7 @@ pub struct Device<B: hal::Backend> {
     pub(crate) adapter_id: Stored<id::AdapterId>,
     pub(crate) queue_group: hal::queue::QueueGroup<B>,
     pub(crate) cmd_allocator: command::CommandAllocator<B>,
-    mem_allocator: Mutex<Heaps<B>>,
+    mem_allocator: Mutex<alloc::MemoryAllocator<B>>,
     desc_allocator: Mutex<DescriptorAllocator<B>>,
     //Note: The submission index here corresponds to the last submission that is done.
     pub(crate) life_guard: LifeGuard,
@@ -268,20 +256,8 @@ impl<B: GfxBackend> Device<B> {
     ) -> Result<Self, CreateDeviceError> {
         let cmd_allocator = command::CommandAllocator::new(queue_group.family, &raw)
             .or(Err(CreateDeviceError::OutOfMemory))?;
-        let heaps = unsafe {
-            Heaps::new(
-                &mem_props,
-                gfx_memory::GeneralConfig {
-                    block_size_granularity: 0x100,
-                    max_chunk_size: 0x100_0000,
-                    min_device_allocation: 0x1_0000,
-                },
-                gfx_memory::LinearConfig {
-                    line_size: 0x100_0000,
-                },
-                hal_limits.non_coherent_atom_size as u64,
-            )
-        };
+
+        let mem_allocator = alloc::MemoryAllocator::new(mem_props, hal_limits);
         let descriptors = unsafe { DescriptorAllocator::new() };
         #[cfg(not(feature = "trace"))]
         match trace_path {
@@ -293,7 +269,7 @@ impl<B: GfxBackend> Device<B> {
             raw,
             adapter_id,
             cmd_allocator,
-            mem_allocator: Mutex::new(heaps),
+            mem_allocator: Mutex::new(mem_allocator),
             desc_allocator: Mutex::new(descriptors),
             queue_group,
             life_guard: LifeGuard::new(),
@@ -436,7 +412,7 @@ impl<B: GfxBackend> Device<B> {
         &self,
         self_id: id::DeviceId,
         desc: &resource::BufferDescriptor,
-        memory_kind: gfx_memory::Kind,
+        mem_strategy: gpu_alloc::Strategy,
     ) -> Result<resource::Buffer<B>, resource::CreateBufferError> {
         debug_assert_eq!(self_id.backend(), B::VARIANT);
         let (mut usage, _memory_properties) = conv::map_buffer_usage(desc.usage);
@@ -446,27 +422,39 @@ impl<B: GfxBackend> Device<B> {
         }
 
         let mem_usage = {
-            use gfx_memory::MemoryUsage;
+            use gpu_alloc::UsageFlags as Uf;
             use wgt::BufferUsage as Bu;
 
-            //TODO: use linear allocation when we can ensure the freeing is linear
-            if !desc.usage.intersects(Bu::MAP_READ | Bu::MAP_WRITE) {
-                MemoryUsage::Private
-            } else if (Bu::MAP_WRITE | Bu::COPY_SRC).contains(desc.usage) {
-                MemoryUsage::Staging { read_back: false }
-            } else if (Bu::MAP_READ | Bu::COPY_DST).contains(desc.usage) {
-                MemoryUsage::Staging { read_back: true }
-            } else {
+            let mut flags = Uf::empty();
+            let map_flags = desc.usage & (Bu::MAP_READ | Bu::MAP_WRITE);
+            if !(desc.usage - map_flags).is_empty() {
+                flags |= Uf::FAST_DEVICE_ACCESS;
+            }
+
+            if !map_flags.is_empty() {
+                let upload_usage = Bu::MAP_WRITE | Bu::COPY_SRC;
+                let download_usage = Bu::MAP_READ | Bu::COPY_DST;
+
+                flags |= Uf::HOST_ACCESS;
+                if desc.usage.contains(upload_usage) {
+                    flags |= Uf::UPLOAD;
+                }
+                if desc.usage.contains(download_usage) {
+                    flags |= Uf::DOWNLOAD;
+                }
+
                 let is_native_only = self
                     .features
                     .contains(wgt::Features::MAPPABLE_PRIMARY_BUFFERS);
-                if !is_native_only {
+                if !is_native_only
+                    && !upload_usage.contains(desc.usage)
+                    && !download_usage.contains(desc.usage)
+                {
                     return Err(resource::CreateBufferError::UsageMismatch(desc.usage));
                 }
-                MemoryUsage::Dynamic {
-                    sparse_updates: false,
-                }
             }
+
+            flags
         };
 
         let mut buffer = unsafe { self.raw.create_buffer(desc.size.max(1), usage) }.map_err(
@@ -480,19 +468,14 @@ impl<B: GfxBackend> Device<B> {
         }
 
         let requirements = unsafe { self.raw.get_buffer_requirements(&buffer) };
-        let memory = self
-            .mem_allocator
-            .lock()
-            .allocate(&self.raw, &requirements, mem_usage, memory_kind)
-            .map_err(DeviceError::from_heaps)?;
-        unsafe {
-            self.raw
-                .bind_buffer_memory(memory.memory(), memory.segment().offset, &mut buffer)
-        }
-        .map_err(DeviceError::from_bind)?;
+        let block =
+            self.mem_allocator
+                .lock()
+                .allocate(&self.raw, requirements, mem_usage, mem_strategy)?;
+        block.bind_buffer(&self.raw, &mut buffer)?;
 
         Ok(resource::Buffer {
-            raw: Some((buffer, memory)),
+            raw: Some((buffer, block)),
             device_id: Stored {
                 value: id::Valid(self_id),
                 ref_count: self.life_guard.add_ref(),
@@ -572,24 +555,16 @@ impl<B: GfxBackend> Device<B> {
         };
 
         let requirements = unsafe { self.raw.get_image_requirements(&image) };
-        let memory = self
-            .mem_allocator
-            .lock()
-            .allocate(
-                &self.raw,
-                &requirements,
-                gfx_memory::MemoryUsage::Private,
-                gfx_memory::Kind::General,
-            )
-            .map_err(DeviceError::from_heaps)?;
-        unsafe {
-            self.raw
-                .bind_image_memory(memory.memory(), memory.segment().offset, &mut image)
-        }
-        .map_err(DeviceError::from_bind)?;
+        let block = self.mem_allocator.lock().allocate(
+            &self.raw,
+            requirements,
+            gpu_alloc::UsageFlags::FAST_DEVICE_ACCESS,
+            gpu_alloc::Strategy::Buddy,
+        )?;
+        block.bind_image(&self.raw, &mut image)?;
 
         Ok(resource::Texture {
-            raw: Some((image, memory)),
+            raw: Some((image, block)),
             device_id: Stored {
                 value: id::Valid(self_id),
                 ref_count: self.life_guard.add_ref(),
@@ -949,16 +924,18 @@ impl From<hal::device::OomOrDeviceLost> for DeviceError {
     }
 }
 
-impl DeviceError {
-    fn from_heaps(err: gfx_memory::HeapsError) -> Self {
+impl From<gpu_alloc::MapError> for DeviceError {
+    fn from(err: gpu_alloc::MapError) -> Self {
         match err {
-            gfx_memory::HeapsError::AllocationError(hal::device::AllocationError::OutOfMemory(
-                _,
-            )) => Self::OutOfMemory,
-            _ => panic!("Unable to allocate memory: {:?}", err),
+            gpu_alloc::MapError::OutOfDeviceMemory | gpu_alloc::MapError::OutOfHostMemory => {
+                DeviceError::OutOfMemory
+            }
+            _ => panic!("failed to map buffer: {}", err),
         }
     }
+}
 
+impl DeviceError {
     fn from_bind(err: hal::device::BindError) -> Self {
         match err {
             hal::device::BindError::OutOfMemory(_) => Self::OutOfMemory,
@@ -1022,19 +999,15 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
         let device = device_guard
             .get(device_id)
             .map_err(|_| DeviceError::Invalid)?;
-        let mut buffer = device.create_buffer(device_id, desc, gfx_memory::Kind::General)?;
+        let mut buffer = device.create_buffer(device_id, desc, gpu_alloc::Strategy::Buddy)?;
         let ref_count = buffer.life_guard.add_ref();
 
         let buffer_use = if !desc.mapped_at_creation {
             resource::BufferUse::EMPTY
         } else if desc.usage.contains(wgt::BufferUsage::MAP_WRITE) {
             // buffer is mappable, so we are just doing that at start
-            let ptr = map_buffer(
-                &device.raw,
-                &mut buffer,
-                hal::buffer::SubRange::WHOLE,
-                HostMap::Write,
-            )?;
+            let size = buffer.size;
+            let ptr = map_buffer(&device.raw, &mut buffer, 0, size, HostMap::Write)?;
 
             buffer.map_state = resource::BufferMapState::Active {
                 ptr,
@@ -1053,15 +1026,13 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
                     usage: wgt::BufferUsage::MAP_WRITE | wgt::BufferUsage::COPY_SRC,
                     mapped_at_creation: false,
                 },
-                gfx_memory::Kind::Linear,
+                gpu_alloc::Strategy::Linear,
             )?;
             let (stage_buffer, mut stage_memory) = stage.raw.unwrap();
-            let mapped = stage_memory
-                .map(&device.raw, hal::memory::Segment::ALL)
-                .map_err(resource::BufferAccessError::from)?;
+            let ptr = stage_memory.map(&device.raw, 0, stage.size)?;
             buffer.map_state = resource::BufferMapState::Init {
-                ptr: mapped.ptr(),
-                needs_flush: !mapped.is_coherent(),
+                ptr,
+                needs_flush: !stage_memory.is_coherent(),
                 stage_buffer,
                 stage_memory,
             };
@@ -1125,12 +1096,12 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
         let mut token = Token::root();
 
         let (device_guard, mut token) = hub.devices.read(&mut token);
-        let (mut buffer_guard, _) = hub.buffers.write(&mut token);
+        let (buffer_guard, _) = hub.buffers.read(&mut token);
         let device = device_guard
             .get(device_id)
             .map_err(|_| DeviceError::Invalid)?;
-        let mut buffer = buffer_guard
-            .get_mut(buffer_id)
+        let buffer = buffer_guard
+            .get(buffer_id)
             .map_err(|_| resource::BufferAccessError::Invalid)?;
         check_buffer_usage(buffer.usage, wgt::BufferUsage::MAP_WRITE)?;
         //assert!(buffer isn't used by the GPU);
@@ -1147,21 +1118,8 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
             });
         }
 
-        let ptr = map_buffer(
-            &device.raw,
-            &mut buffer,
-            hal::buffer::SubRange {
-                offset,
-                size: Some(data.len() as BufferAddress),
-            },
-            HostMap::Write,
-        )?;
-
-        unsafe {
-            ptr::copy_nonoverlapping(data.as_ptr(), ptr.as_ptr(), data.len());
-        }
-
-        unmap_buffer(&device.raw, buffer)?;
+        let &(_, ref block) = buffer.raw.as_ref().unwrap();
+        block.write_bytes(&device.raw, offset, data)?;
 
         Ok(())
     }
@@ -1179,31 +1137,18 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
         let mut token = Token::root();
 
         let (device_guard, mut token) = hub.devices.read(&mut token);
-        let (mut buffer_guard, _) = hub.buffers.write(&mut token);
+        let (buffer_guard, _) = hub.buffers.read(&mut token);
         let device = device_guard
             .get(device_id)
             .map_err(|_| DeviceError::Invalid)?;
-        let mut buffer = buffer_guard
-            .get_mut(buffer_id)
+        let buffer = buffer_guard
+            .get(buffer_id)
             .map_err(|_| resource::BufferAccessError::Invalid)?;
         check_buffer_usage(buffer.usage, wgt::BufferUsage::MAP_READ)?;
         //assert!(buffer isn't used by the GPU);
 
-        let ptr = map_buffer(
-            &device.raw,
-            &mut buffer,
-            hal::buffer::SubRange {
-                offset,
-                size: Some(data.len() as BufferAddress),
-            },
-            HostMap::Read,
-        )?;
-
-        unsafe {
-            ptr::copy_nonoverlapping(ptr.as_ptr(), data.as_mut_ptr(), data.len());
-        }
-
-        unmap_buffer(&device.raw, buffer)?;
+        let &(_, ref block) = buffer.raw.as_ref().unwrap();
+        block.read_bytes(&device.raw, offset, data)?;
 
         Ok(())
     }
@@ -3798,10 +3743,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
                 }
                 resource::BufferMapState::Idle => {
                     resource::BufferMapState::Waiting(resource::BufferPendingMapping {
-                        sub_range: hal::buffer::SubRange {
-                            offset: range.start,
-                            size: Some(range.end - range.start),
-                        },
+                        range,
                         op,
                         parent_ref_count: buffer.life_guard.add_ref(),
                     })
@@ -3893,17 +3835,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
                 let _ = ptr;
 
                 if needs_flush {
-                    //TODO: gfx-memory needs a helper method for this.
-                    // It needs to align the mapped range to the non-coherent atom size.
-                    unsafe {
-                        device
-                            .raw
-                            .flush_mapped_memory_ranges(iter::once((
-                                stage_memory.memory(),
-                                stage_memory.segment(),
-                            )))
-                            .unwrap()
-                    };
+                    stage_memory.flush_range(&device.raw, 0, None)?;
                 }
 
                 let &(ref buf_raw, _) = buffer

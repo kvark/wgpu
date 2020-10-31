@@ -66,12 +66,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "atom"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c86699c3f02778ec07158376991c8f783dd1f2f95c579ffaf0738dc984b2fe2"
-
-[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -542,16 +536,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "gfx-memory"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe8d8855df07f438eb8a765e90356d5b821d644ea3b59b870091450b89576a9f"
+name = "gpu-alloc"
+version = "0.1.0"
+source = "git+https://github.com/zakarumych/gpu-alloc#e86aac2cc5c19b5a08d52f3b45f26081df638260"
 dependencies = [
- "fxhash",
- "gfx-hal",
- "hibitset",
- "log",
- "slab",
+ "bitflags",
+ "gpu-alloc-types",
+]
+
+[[package]]
+name = "gpu-alloc-types"
+version = "0.1.0"
+source = "git+https://github.com/zakarumych/gpu-alloc#e86aac2cc5c19b5a08d52f3b45f26081df638260"
+dependencies = [
+ "bitflags",
 ]
 
 [[package]]
@@ -570,15 +568,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91780f809e750b0a89f5544be56617ff6b1227ee485bcb06ebe10cdf89bd3b71"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "hibitset"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93a1bb8316a44459a7d14253c4d28dd7395cbd23cc04a68c46e851b8e46d64b1"
-dependencies = [
- "atom",
 ]
 
 [[package]]
@@ -1674,7 +1663,7 @@ dependencies = [
  "gfx-backend-vulkan",
  "gfx-descriptor",
  "gfx-hal",
- "gfx-memory",
+ "gpu-alloc",
  "loom",
  "naga",
  "parking_lot 0.11.0",
