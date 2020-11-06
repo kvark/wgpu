@@ -56,6 +56,7 @@ impl<B: hal::Backend> MemoryAllocator<B> {
                 as u32,
             max_memory_allocation_size: !0,
             non_coherent_atom_size: limits.non_coherent_atom_size as u64,
+            buffer_device_address: false,
         };
         MemoryAllocator(gpu_alloc::GpuAllocator::new(mem_config, properties))
     }
@@ -65,7 +66,6 @@ impl<B: hal::Backend> MemoryAllocator<B> {
         device: &B::Device,
         requirements: hal::memory::Requirements,
         usage: gpu_alloc::UsageFlags,
-        strategy: gpu_alloc::Strategy,
     ) -> Result<MemoryBlock<B>, DeviceError> {
         assert!(requirements.alignment.is_power_of_two());
         let request = gpu_alloc::Request {
@@ -73,19 +73,15 @@ impl<B: hal::Backend> MemoryAllocator<B> {
             align_mask: requirements.alignment - 1,
             memory_types: requirements.type_mask,
             usage,
-            dedicated: Default::default(),
         };
 
-        unsafe {
-            self.0
-                .alloc_with_strategy(&MemoryDevice::<B>(device), request, strategy)
-        }
-        .map(MemoryBlock)
-        .map_err(|err| match err {
-            gpu_alloc::AllocationError::OutOfHostMemory
-            | gpu_alloc::AllocationError::OutOfDeviceMemory => DeviceError::OutOfMemory,
-            _ => panic!("Unable to allocate memory: {:?}", err),
-        })
+        unsafe { self.0.alloc(&MemoryDevice::<B>(device), request) }
+            .map(MemoryBlock)
+            .map_err(|err| match err {
+                gpu_alloc::AllocationError::OutOfHostMemory
+                | gpu_alloc::AllocationError::OutOfDeviceMemory => DeviceError::OutOfMemory,
+                _ => panic!("Unable to allocate memory: {:?}", err),
+            })
     }
 
     pub fn free(&mut self, device: &B::Device, block: MemoryBlock<B>) {
@@ -134,7 +130,7 @@ impl<B: hal::Backend> MemoryBlock<B> {
         inner_offset: wgt::BufferAddress,
         size: wgt::BufferAddress,
     ) -> Result<NonNull<u8>, DeviceError> {
-        let offset = self.0.offset() + inner_offset;
+        let offset = inner_offset;
         unsafe {
             self.0
                 .map(&MemoryDevice::<B>(device), offset, size as usize)
@@ -147,12 +143,12 @@ impl<B: hal::Backend> MemoryBlock<B> {
     }
 
     pub fn write_bytes(
-        &self,
+        &mut self,
         device: &B::Device,
         inner_offset: wgt::BufferAddress,
         data: &[u8],
     ) -> Result<(), DeviceError> {
-        let offset = self.0.offset() + inner_offset;
+        let offset = inner_offset;
         unsafe {
             self.0
                 .write_bytes(&MemoryDevice::<B>(device), offset, data)
@@ -161,12 +157,12 @@ impl<B: hal::Backend> MemoryBlock<B> {
     }
 
     pub fn read_bytes(
-        &self,
+        &mut self,
         device: &B::Device,
         inner_offset: wgt::BufferAddress,
         data: &mut [u8],
     ) -> Result<(), DeviceError> {
-        let offset = self.0.offset() + inner_offset;
+        let offset = inner_offset;
         unsafe {
             self.0
                 .read_bytes(&MemoryDevice::<B>(device), offset, data)
@@ -220,7 +216,10 @@ impl<B: hal::Backend> gpu_alloc::MemoryDevice<Arc<B::Memory>> for MemoryDevice<'
         &self,
         size: u64,
         memory_type: u32,
+        flags: gpu_alloc::AllocationFlags,
     ) -> Result<Arc<B::Memory>, gpu_alloc::OutOfMemory> {
+        assert!(flags.is_empty());
+
         self.0
             .allocate_memory(hal::MemoryTypeId(memory_type as _), size)
             .map(Arc::new)

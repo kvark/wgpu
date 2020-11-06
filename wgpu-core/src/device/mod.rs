@@ -191,13 +191,14 @@ fn unmap_buffer<B: hal::Backend>(
     raw: &B::Device,
     buffer: &mut resource::Buffer<B>,
 ) -> Result<(), resource::BufferAccessError> {
-    let &(_, ref memory) = buffer
+    let &mut (_, ref mut block) = buffer
         .raw
-        .as_ref()
+        .as_mut()
         .ok_or(resource::BufferAccessError::Destroyed)?;
     if let Some(segment) = buffer.sync_mapped_writes.take() {
-        memory.flush_range(raw, segment.offset, segment.size)?;
+        block.flush_range(raw, segment.offset, segment.size)?;
     }
+    block.unmap(raw);
     Ok(())
 }
 
@@ -412,7 +413,7 @@ impl<B: GfxBackend> Device<B> {
         &self,
         self_id: id::DeviceId,
         desc: &resource::BufferDescriptor,
-        mem_strategy: gpu_alloc::Strategy,
+        transient: bool,
     ) -> Result<resource::Buffer<B>, resource::CreateBufferError> {
         debug_assert_eq!(self_id.backend(), B::VARIANT);
         let (mut usage, _memory_properties) = conv::map_buffer_usage(desc.usage);
@@ -429,6 +430,9 @@ impl<B: GfxBackend> Device<B> {
             let map_flags = desc.usage & (Bu::MAP_READ | Bu::MAP_WRITE);
             if !(desc.usage - map_flags).is_empty() {
                 flags |= Uf::FAST_DEVICE_ACCESS;
+            }
+            if transient {
+                flags |= Uf::TRANSIENT;
             }
 
             if !map_flags.is_empty() {
@@ -468,10 +472,10 @@ impl<B: GfxBackend> Device<B> {
         }
 
         let requirements = unsafe { self.raw.get_buffer_requirements(&buffer) };
-        let block =
-            self.mem_allocator
-                .lock()
-                .allocate(&self.raw, requirements, mem_usage, mem_strategy)?;
+        let block = self
+            .mem_allocator
+            .lock()
+            .allocate(&self.raw, requirements, mem_usage)?;
         block.bind_buffer(&self.raw, &mut buffer)?;
 
         Ok(resource::Buffer {
@@ -559,7 +563,6 @@ impl<B: GfxBackend> Device<B> {
             &self.raw,
             requirements,
             gpu_alloc::UsageFlags::FAST_DEVICE_ACCESS,
-            gpu_alloc::Strategy::Buddy,
         )?;
         block.bind_image(&self.raw, &mut image)?;
 
@@ -999,7 +1002,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
         let device = device_guard
             .get(device_id)
             .map_err(|_| DeviceError::Invalid)?;
-        let mut buffer = device.create_buffer(device_id, desc, gpu_alloc::Strategy::Buddy)?;
+        let mut buffer = device.create_buffer(device_id, desc, false)?;
         let ref_count = buffer.life_guard.add_ref();
 
         let buffer_use = if !desc.mapped_at_creation {
@@ -1026,7 +1029,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
                     usage: wgt::BufferUsage::MAP_WRITE | wgt::BufferUsage::COPY_SRC,
                     mapped_at_creation: false,
                 },
-                gpu_alloc::Strategy::Linear,
+                true,
             )?;
             let (stage_buffer, mut stage_memory) = stage.raw.unwrap();
             let ptr = stage_memory.map(&device.raw, 0, stage.size)?;
@@ -1096,12 +1099,12 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
         let mut token = Token::root();
 
         let (device_guard, mut token) = hub.devices.read(&mut token);
-        let (buffer_guard, _) = hub.buffers.read(&mut token);
+        let (mut buffer_guard, _) = hub.buffers.write(&mut token);
         let device = device_guard
             .get(device_id)
             .map_err(|_| DeviceError::Invalid)?;
         let buffer = buffer_guard
-            .get(buffer_id)
+            .get_mut(buffer_id)
             .map_err(|_| resource::BufferAccessError::Invalid)?;
         check_buffer_usage(buffer.usage, wgt::BufferUsage::MAP_WRITE)?;
         //assert!(buffer isn't used by the GPU);
@@ -1118,7 +1121,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
             });
         }
 
-        let &(_, ref block) = buffer.raw.as_ref().unwrap();
+        let (_, block) = buffer.raw.as_mut().unwrap();
         block.write_bytes(&device.raw, offset, data)?;
 
         Ok(())
@@ -1137,17 +1140,17 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
         let mut token = Token::root();
 
         let (device_guard, mut token) = hub.devices.read(&mut token);
-        let (buffer_guard, _) = hub.buffers.read(&mut token);
+        let (mut buffer_guard, _) = hub.buffers.write(&mut token);
         let device = device_guard
             .get(device_id)
             .map_err(|_| DeviceError::Invalid)?;
         let buffer = buffer_guard
-            .get(buffer_id)
+            .get_mut(buffer_id)
             .map_err(|_| resource::BufferAccessError::Invalid)?;
         check_buffer_usage(buffer.usage, wgt::BufferUsage::MAP_READ)?;
         //assert!(buffer isn't used by the GPU);
 
-        let &(_, ref block) = buffer.raw.as_ref().unwrap();
+        let (_, block) = buffer.raw.as_mut().unwrap();
         block.read_bytes(&device.raw, offset, data)?;
 
         Ok(())

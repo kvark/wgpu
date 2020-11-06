@@ -538,7 +538,7 @@ dependencies = [
 [[package]]
 name = "gpu-alloc"
 version = "0.1.0"
-source = "git+https://github.com/zakarumych/gpu-alloc#e86aac2cc5c19b5a08d52f3b45f26081df638260"
+source = "git+https://github.com/zakarumych/gpu-alloc?branch=fixup#b52c07a043103b06d8d3a2df78323e67174d6654"
 dependencies = [
  "bitflags",
  "gpu-alloc-types",
@@ -547,7 +547,7 @@ dependencies = [
 [[package]]
 name = "gpu-alloc-types"
 version = "0.1.0"
-source = "git+https://github.com/zakarumych/gpu-alloc#e86aac2cc5c19b5a08d52f3b45f26081df638260"
+source = "git+https://github.com/zakarumych/gpu-alloc?branch=fixup#b52c07a043103b06d8d3a2df78323e67174d6654"
 dependencies = [
  "bitflags",
 ]

@@ -125,8 +125,7 @@ impl<B: hal::Backend> super::Device<B> {
         let block = self.mem_allocator.lock().allocate(
             &self.raw,
             requirements,
-            gpu_alloc::UsageFlags::UPLOAD,
-            gpu_alloc::Strategy::Linear,
+            gpu_alloc::UsageFlags::UPLOAD | gpu_alloc::UsageFlags::TRANSIENT,
         )?;
         block.bind_buffer(&self.raw, &mut buffer)?;
 
