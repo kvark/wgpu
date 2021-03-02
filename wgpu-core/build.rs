@@ -15,6 +15,6 @@ fn main() {
         metal: { all(not(wasm), apple) },
         dx12: { all(not(wasm), windows) },
         dx11: { all(not(wasm), windows) },
-        gl: { any(wasm, unix_wo_apple) },
+        gl: { false },
     }
 }

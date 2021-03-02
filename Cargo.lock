@@ -525,29 +525,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gfx-backend-gl"
-version = "0.7.0"
-source = "git+https://github.com/gfx-rs/gfx?rev=84e02f96149207b1bafecb1924b14315930c98ee#84e02f96149207b1bafecb1924b14315930c98ee"
-dependencies = [
- "arrayvec",
- "bitflags",
- "fxhash",
- "gfx-auxil",
- "gfx-hal",
- "glow",
- "js-sys",
- "khronos-egl",
- "libloading 0.7.0",
- "log",
- "naga",
- "parking_lot",
- "raw-window-handle",
- "spirv_cross",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
 name = "gfx-backend-metal"
 version = "0.7.0"
 source = "git+https://github.com/gfx-rs/gfx?rev=84e02f96149207b1bafecb1924b14315930c98ee#84e02f96149207b1bafecb1924b14315930c98ee"
@@ -602,18 +579,6 @@ dependencies = [
  "naga",
  "raw-window-handle",
  "thiserror",
-]
-
-[[package]]
-name = "glow"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "072136d2c3783f3a92f131acb227bc806d3886278e2a4dc1e9990ec89ef9e70b"
-dependencies = [
- "js-sys",
- "slotmap",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]
@@ -749,16 +714,6 @@ checksum = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
-]
-
-[[package]]
-name = "khronos-egl"
-version = "4.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c2352bd1d0bceb871cb9d40f24360c8133c11d7486b68b5381c1dd1a32015e3"
-dependencies = [
- "libc",
- "libloading 0.7.0",
 ]
 
 [[package]]
@@ -1321,12 +1276,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c111b5bd5695e56cffe5129854aa230b39c93a305372fdbb2668ca2394eea9f8"
 
 [[package]]
-name = "slotmap"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c46a3482db8f247956e464d783693ece164ca056e6e67563ee5505bdb86452cd"
-
-[[package]]
 name = "smallvec"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1614,16 +1563,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "web-sys"
-version = "0.3.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d6f51648d8c56c366144378a33290049eafdd784071077f6fe37dae64c1c4cb"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "wgpu-core"
 version = "0.7.0"
 dependencies = [
@@ -1635,7 +1574,6 @@ dependencies = [
  "gfx-backend-dx11",
  "gfx-backend-dx12",
  "gfx-backend-empty",
- "gfx-backend-gl",
  "gfx-backend-metal",
  "gfx-backend-vulkan",
  "gfx-hal",
