@@ -65,7 +65,9 @@ impl<B: hal::Backend> CommandPool<B> {
 
     fn destroy(mut self, device: &B::Device) {
         unsafe {
-            self.raw.free(self.available.into_iter());
+            if !self.available.is_empty() {
+                self.raw.free(self.available.into_iter());
+            }
             device.destroy_command_pool(self.raw);
         }
     }
