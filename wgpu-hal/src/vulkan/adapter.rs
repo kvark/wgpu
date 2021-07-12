@@ -436,7 +436,9 @@ impl PhysicalDeviceCapabilities {
                 extensions.push(vk::KhrImageFormatListFn::name()); // Required for `KhrImagelessFramebufferFn`
             }
 
+            extensions.push(khr::TimelineSemaphore::name());
             extensions.push(vk::ExtSamplerFilterMinmaxFn::name());
+            //extensions.push(vk::KhrSamplerMirrorClampToEdgeFn::name());
 
             if requested_features.intersects(indexing_features()) {
                 extensions.push(vk::ExtDescriptorIndexingFn::name());
@@ -445,9 +447,6 @@ impl PhysicalDeviceCapabilities {
                     extensions.push(vk::KhrMaintenance3Fn::name());
                 }
             }
-
-            //extensions.push(vk::KhrSamplerMirrorClampToEdgeFn::name());
-            //extensions.push(vk::ExtSamplerFilterMinmaxFn::name());
 
             if requested_features.contains(wgt::Features::MULTI_DRAW_INDIRECT_COUNT) {
                 extensions.push(khr::DrawIndirectCount::name());
