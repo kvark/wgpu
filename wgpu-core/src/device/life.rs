@@ -283,6 +283,7 @@ impl<A: hal::Api> LifetimeTracker<A> {
     }
 
     pub(crate) fn map(&mut self, value: id::Valid<id::BufferId>, ref_count: RefCount) {
+        println!("Adding {:?} to mapped list", value);
         self.mapped.push(Stored { value, ref_count });
     }
 
@@ -654,6 +655,7 @@ impl<A: HalApi> LifetimeTracker<A> {
                 submit_index,
                 self.active.iter().position(|a| a.index == submit_index)
             );
+            println!("Triaging {:?} to mapped list for submission {:?}", resource_id, submit_index);
 
             self.active
                 .iter_mut()
@@ -680,6 +682,7 @@ impl<A: HalApi> LifetimeTracker<A> {
         let mut trackers = trackers.lock();
         for buffer_id in self.ready_to_map.drain(..) {
             let buffer = &mut buffer_guard[buffer_id];
+            println!("Resolving mapping for {:?}", buffer_id);
             if buffer.life_guard.ref_count.is_none() && trackers.buffers.remove_abandoned(buffer_id)
             {
                 buffer.map_state = resource::BufferMapState::Idle;
@@ -727,6 +730,7 @@ impl<A: HalApi> LifetimeTracker<A> {
                 } else {
                     resource::BufferMapAsyncStatus::Success
                 };
+                println!("Adding callback with {:?}", status);
                 pending_callbacks.push((mapping.op, status));
             }
         }

@@ -32,7 +32,7 @@ use thiserror::Error;
 
 const PUSH_CONSTANT_CLEAR_ARRAY: &[u32] = &[0_u32; 64];
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum CommandEncoderStatus {
     Recording,
     Finished,
@@ -66,6 +66,8 @@ impl<A: hal::Api> CommandEncoder<A> {
     }
 }
 
+/// The product of a command buffer, done before the end of CPU-side
+/// portion of its life.
 pub struct BakedCommands<A: hal::Api> {
     pub(crate) encoder: A::CommandEncoder,
     pub(crate) list: Vec<A::CommandBuffer>,
@@ -173,6 +175,7 @@ impl<A: hal::Api> CommandBuffer<A> {
     }
 
     pub(crate) fn into_baked(self) -> BakedCommands<A> {
+        assert_ne!(self.status, CommandEncoderStatus::Recording);
         BakedCommands {
             encoder: self.encoder.raw,
             list: self.encoder.list,
