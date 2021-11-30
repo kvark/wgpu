@@ -528,7 +528,7 @@ impl PhysicalDeviceFeatures {
 }
 
 /// Information gathered about a physical device capabilities.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct PhysicalDeviceCapabilities {
     supported_extensions: Vec<vk::ExtensionProperties>,
     properties: vk::PhysicalDeviceProperties,
@@ -848,6 +848,8 @@ impl super::Instance {
         use crate::auxil::db;
 
         let (phd_capabilities, phd_features) = self.shared.inspect(phd);
+        println!("Adapter caps {:#?}", phd_capabilities);
+        println!("Adapter features {:#?}", phd_features);
 
         let info = wgt::AdapterInfo {
             name: unsafe {
@@ -1016,7 +1018,7 @@ impl super::Adapter {
             log::warn!("Missing extensions: {:?}", unsupported_extensions);
         }
 
-        log::debug!("Supported extensions: {:?}", supported_extensions);
+        println!("Required adapter extensions: {:#?}", supported_extensions);
         supported_extensions
     }
 
@@ -1252,6 +1254,8 @@ impl crate::Adapter<super::Api> for super::Adapter {
         let enabled_extensions = self.required_device_extensions(features);
         let mut enabled_phd_features =
             self.physical_device_features(&enabled_extensions, features, uab_types);
+
+        println!("Opened with {:#?}", enabled_phd_features);
 
         let family_index = 0; //TODO
         let family_info = vk::DeviceQueueCreateInfo::builder()
