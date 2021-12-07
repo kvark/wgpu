@@ -1485,6 +1485,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
                         };
                         state.is_ready(indexed).map_pass_err(scope)?;
 
+                        /*
                         let last_vertex = first_vertex + vertex_count;
                         let vertex_limit = state.vertex.vertex_limit;
                         if last_vertex > vertex_limit {
@@ -1504,7 +1505,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
                                 slot: state.vertex.instance_limit_slot,
                             })
                             .map_pass_err(scope);
-                        }
+                        }*/
 
                         unsafe {
                             raw.draw(first_vertex, vertex_count, first_instance, instance_count);

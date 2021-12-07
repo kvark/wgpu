@@ -10,12 +10,14 @@ use wgpu::util::DeviceExt;
 struct Vertex {
     _pos: [f32; 4],
     _tex_coord: [f32; 2],
+    _dummy: [f32; 4],
 }
 
 fn vertex(pos: [i8; 3], tc: [i8; 2]) -> Vertex {
     Vertex {
         _pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32, 1.0],
         _tex_coord: [tc[0] as f32, tc[1] as f32],
+        _dummy: [0.0; 4],
     }
 }
 
@@ -85,6 +87,7 @@ fn create_texels(size: usize) -> Vec<u8> {
 
 struct Example {
     vertex_buf: wgpu::Buffer,
+    vertex_count: usize,
     index_buf: wgpu::Buffer,
     index_count: usize,
     bind_group: wgpu::BindGroup,
@@ -120,10 +123,11 @@ impl framework::Example for Example {
         // Create the vertex and index buffers
         let vertex_size = mem::size_of::<Vertex>();
         let (vertex_data, index_data) = create_vertices();
+        let vs_size = vertex_data.len() * vertex_size - 16;
 
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(&vertex_data),
+            contents: &bytemuck::cast_slice(&vertex_data)[..vs_size],
             usage: wgpu::BufferUsages::VERTEX,
         });
 
@@ -306,6 +310,7 @@ impl framework::Example for Example {
         // Done
         Example {
             vertex_buf,
+            vertex_count: vertex_data.len(),
             index_buf,
             index_count: index_data.len(),
             bind_group,
@@ -364,7 +369,8 @@ impl framework::Example for Example {
             rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
             rpass.pop_debug_group();
             rpass.insert_debug_marker("Draw!");
-            rpass.draw_indexed(0..self.index_count as u32, 0, 0..1);
+            //rpass.draw_indexed(0..self.index_count as u32, 0, 0..1);
+            rpass.draw(0..self.vertex_count as u32, 0..1);
             if let Some(ref pipe) = self.pipeline_wire {
                 rpass.set_pipeline(pipe);
                 rpass.draw_indexed(0..self.index_count as u32, 0, 0..1);
