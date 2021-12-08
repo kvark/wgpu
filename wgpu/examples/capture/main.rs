@@ -122,6 +122,8 @@ async fn create_png(
     output_buffer: Buffer,
     buffer_dimensions: &BufferDimensions,
 ) {
+    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+
     // Note that we're not calling `.await` here.
     let buffer_slice = output_buffer.slice(..);
     let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
@@ -129,7 +131,17 @@ async fn create_png(
     // Poll the device in a blocking manner so that our future resolves.
     // In an actual application, `device.poll(...)` should
     // be called in an event loop or on another thread.
-    device.poll(wgpu::Maintain::Wait);
+    //device.poll(wgpu::Maintain::Wait);
+
+    let done = Arc::new(AtomicBool::default());
+    let thread_done = done.clone();
+    std::thread::spawn(move || {
+        while !thread_done.load(Ordering::SeqCst) {
+            device.poll(wgpu::Maintain::Poll);
+        }
+    });
+
+
     // If a file system is available, write the buffer as a PNG
     let has_file_system_available = cfg!(not(target_arch = "wasm32"));
     if !has_file_system_available {
@@ -137,6 +149,7 @@ async fn create_png(
     }
 
     if let Ok(()) = buffer_future.await {
+        done.store(true, Ordering::SeqCst);
         let padded_buffer = buffer_slice.get_mapped_range();
 
         let mut png_encoder = png::Encoder::new(
