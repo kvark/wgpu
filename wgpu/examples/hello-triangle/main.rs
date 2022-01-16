@@ -7,7 +7,7 @@ use winit::{
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
     let size = window.inner_size();
-    let instance = wgpu::Instance::new(wgpu::Backends::all());
+    let instance = wgpu::Instance::new(wgpu::Backends::VULKAN);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -24,7 +24,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
-                features: wgpu::Features::empty(),
+                features: wgpu::Features::SPIRV_SHADER_PASSTHROUGH,
                 // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
                 limits: wgpu::Limits::downlevel_webgl2_defaults()
                     .using_resolution(adapter.limits()),
@@ -34,11 +34,24 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .await
         .expect("Failed to create device");
 
-    // Load the shaders from disk
-    let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-        label: None,
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
-    });
+    let shader_vs = {
+        let shader_bytes = include_bytes!("Vertex.spv").to_vec();
+        unsafe {
+            device.create_shader_module_spirv(&wgpu::ShaderModuleDescriptorSpirV {
+                label: None,
+                source: Cow::Borrowed(std::slice::from_raw_parts(shader_bytes.as_ptr() as *const u32, shader_bytes.len() / 4)),
+            })
+        }
+    };
+    let shader_fs = {
+        let shader_bytes = include_bytes!("Fragment.spv").to_vec();
+        unsafe {
+            device.create_shader_module_spirv(&wgpu::ShaderModuleDescriptorSpirV {
+                label: None,
+                source: Cow::Borrowed(std::slice::from_raw_parts(shader_bytes.as_ptr() as *const u32, shader_bytes.len() / 4)),
+            })
+        }
+    };
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
@@ -52,12 +65,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         label: None,
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
-            module: &shader,
+            module: &shader_vs,
             entry_point: "vs_main",
             buffers: &[],
         },
         fragment: Some(wgpu::FragmentState {
-            module: &shader,
+            module: &shader_fs,
             entry_point: "fs_main",
             targets: &[swapchain_format.into()],
         }),
@@ -81,7 +94,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         // Have the closure take ownership of the resources.
         // `event_loop.run` never returns, therefore we must do this to ensure
         // the resources are properly cleaned up.
-        let _ = (&instance, &adapter, &shader, &pipeline_layout);
+        let _ = (&instance, &adapter, &pipeline_layout);
 
         *control_flow = ControlFlow::Wait;
         match event {
