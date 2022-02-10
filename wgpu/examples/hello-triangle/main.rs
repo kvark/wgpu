@@ -7,7 +7,7 @@ use winit::{
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
     let size = window.inner_size();
-    let instance = wgpu::Instance::new(wgpu::Backends::all());
+    let instance = wgpu::Instance::new(wgpu::Backends::DX12);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -45,6 +45,35 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         bind_group_layouts: &[],
         push_constant_ranges: &[],
     });
+
+    {
+        let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("Blitter.shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("blit.wgsl"))),
+        });
+
+        let _ = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Blitter.pipeline"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[wgpu::TextureFormat::Rgba8UnormSrgb.into()],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None
+        });
+    }
 
     let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
 
