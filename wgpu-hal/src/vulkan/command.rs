@@ -99,6 +99,16 @@ impl crate::CommandEncoder<super::Api> for super::CommandEncoder {
             .device
             .raw
             .reset_command_pool(self.raw, vk::CommandPoolResetFlags::default());
+
+        if let Some(ref mut live_binder) = self.live_binder {
+            for descriptor_pool in live_binder.used_pools.drain(..) {
+                let _ = self.device.raw.reset_descriptor_pool(
+                    descriptor_pool,
+                    vk::DescriptorPoolResetFlags::default(),
+                );
+                live_binder.free_pools.push(descriptor_pool);
+            }
+        }
     }
 
     unsafe fn transition_buffers<'a, T>(&mut self, barriers: T)
@@ -504,7 +514,22 @@ impl crate::CommandEncoder<super::Api> for super::CommandEncoder {
         resources: crate::BindGroupResources<super::Api>,
         entries: &[crate::BindGroupEntry],
     ) {
-        unimplemented!()
+        let descriptor_set = self.live_binder.as_mut().unwrap().generate(
+            &self.device.raw,
+            &layout.group_layouts[index as usize],
+            resources,
+            entries,
+        );
+
+        let sets = [descriptor_set.unwrap()];
+        self.device.raw.cmd_bind_descriptor_sets(
+            self.active,
+            self.bind_point,
+            layout.raw,
+            index,
+            &sets,
+            &[],
+        );
     }
     unsafe fn set_push_constants(
         &mut self,

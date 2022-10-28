@@ -13,6 +13,191 @@ use std::{
     sync::Arc,
 };
 
+unsafe fn create_live_descriptor_pool(
+    device: &ash::Device,
+    number: usize,
+) -> Result<vk::DescriptorPool, crate::DeviceError> {
+    let counts = [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::SAMPLER,
+            descriptor_count: 10 << number,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::SAMPLED_IMAGE,
+            descriptor_count: 10 << number,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::STORAGE_IMAGE,
+            descriptor_count: 5 << number,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 10 << number,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+            descriptor_count: 1 << number,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::STORAGE_BUFFER,
+            descriptor_count: 10 << number,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::STORAGE_BUFFER_DYNAMIC,
+            descriptor_count: 1 << number,
+        },
+    ];
+
+    let vk_info = vk::DescriptorPoolCreateInfo::builder()
+        .max_sets(10 << number)
+        .pool_sizes(&counts)
+        .build();
+
+    match device.create_descriptor_pool(&vk_info, None) {
+        Ok(pool) => Ok(pool),
+        Err(error) => {
+            log::error!("create_descriptor_pool: {:?}", error);
+            Err(crate::DeviceError::OutOfMemory)
+        }
+    }
+}
+
+impl super::LiveBinder {
+    pub(super) unsafe fn generate(
+        &mut self,
+        device: &ash::Device,
+        layout: &super::LiveBindGroupLayout,
+        resources: crate::BindGroupResources<super::Api>,
+        entries: &[crate::BindGroupEntry],
+    ) -> Result<vk::DescriptorSet, crate::DeviceError> {
+        let set = self.allocate(device, layout.raw)?;
+        self.fill(set, &layout.types, resources, entries);
+        device.update_descriptor_sets(&self.writes, &[]);
+        Ok(set)
+    }
+
+    unsafe fn allocate(
+        &mut self,
+        device: &ash::Device,
+        vk_layout: vk::DescriptorSetLayout,
+    ) -> Result<vk::DescriptorSet, crate::DeviceError> {
+        let vk_layouts = [vk_layout];
+        let mut info = vk::DescriptorSetAllocateInfo::builder()
+            .set_layouts(&vk_layouts)
+            .build();
+        for &pool in self.used_pools.iter() {
+            info.descriptor_pool = pool;
+            if let Ok(mut vk_sets) = device.allocate_descriptor_sets(&info) {
+                return Ok(vk_sets.pop().unwrap());
+            }
+        }
+
+        let pool = match self.free_pools.pop() {
+            Some(pool) => pool,
+            None => create_live_descriptor_pool(device, self.used_pools.len())?,
+        };
+        info.descriptor_pool = pool;
+        self.used_pools.push(pool);
+
+        match device.allocate_descriptor_sets(&info) {
+            Ok(mut vk_sets) => Ok(vk_sets.pop().unwrap()),
+            Err(_) => Err(crate::DeviceError::OutOfMemory),
+        }
+    }
+
+    unsafe fn fill(
+        &mut self,
+        descriptor_set: vk::DescriptorSet,
+        descriptor_types: &[vk::DescriptorType],
+        resources: crate::BindGroupResources<super::Api>,
+        entries: &[crate::BindGroupEntry],
+    ) {
+        self.writes.clear();
+        self.writes.reserve(entries.len());
+        // Allocate enough space to avoid pointer invalidation
+        self.info_buffers.clear();
+        self.info_buffers.reserve(resources.buffers.len());
+        self.info_images.clear();
+        self.info_images
+            .reserve(resources.textures.len() + resources.samplers.len());
+
+        for entry in entries {
+            let ty = descriptor_types[entry.binding as usize];
+            if ty == vk::DescriptorType::INPUT_ATTACHMENT {
+                continue; // empty slot
+            }
+
+            let mut write = vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_set)
+                .dst_binding(entry.binding)
+                .descriptor_type(ty);
+            write = match ty {
+                vk::DescriptorType::SAMPLER => {
+                    let index = self.info_images.len();
+                    let start = entry.resource_index;
+                    let end = start + entry.count;
+                    self.info_images.extend(
+                        resources.samplers[start as usize..end as usize]
+                            .iter()
+                            .map(|binding| {
+                                vk::DescriptorImageInfo::builder()
+                                    .sampler(binding.raw)
+                                    .build()
+                            }),
+                    );
+                    write.image_info(&self.info_images[index..])
+                }
+                vk::DescriptorType::SAMPLED_IMAGE | vk::DescriptorType::STORAGE_IMAGE => {
+                    let index = self.info_images.len();
+                    let start = entry.resource_index;
+                    let end = start + entry.count;
+                    self.info_images.extend(
+                        resources.textures[start as usize..end as usize]
+                            .iter()
+                            .map(|binding| {
+                                let layout = conv::derive_image_layout(
+                                    binding.usage,
+                                    binding.view.aspects(),
+                                );
+                                vk::DescriptorImageInfo::builder()
+                                    .image_view(binding.view.raw)
+                                    .image_layout(layout)
+                                    .build()
+                            }),
+                    );
+                    write.image_info(&self.info_images[index..])
+                }
+                vk::DescriptorType::UNIFORM_BUFFER | vk::DescriptorType::STORAGE_BUFFER => {
+                    let index = self.info_buffers.len();
+                    let start = entry.resource_index;
+                    let end = start + entry.count;
+                    self.info_buffers.extend(
+                        resources.buffers[start as usize..end as usize]
+                            .iter()
+                            .map(|binding| {
+                                vk::DescriptorBufferInfo::builder()
+                                    .buffer(binding.buffer.raw)
+                                    .offset(binding.offset)
+                                    .range(
+                                        binding.size.map_or(vk::WHOLE_SIZE, wgt::BufferSize::get),
+                                    )
+                                    .build()
+                            }),
+                    );
+                    write.buffer_info(&self.info_buffers[index..])
+                }
+                vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC
+                | vk::DescriptorType::STORAGE_BUFFER_DYNAMIC => {
+                    panic!("Dynamic offsets are not supported for pushed descriptors");
+                }
+                _ => unreachable!(),
+            };
+
+            self.writes.push(write.build());
+        }
+    }
+}
+
 impl super::DeviceShared {
     pub(super) unsafe fn set_object_name(
         &self,
@@ -1062,12 +1247,21 @@ impl crate::Device<super::Api> for super::Device {
             .flags(vk::CommandPoolCreateFlags::TRANSIENT)
             .build();
         let raw = self.shared.raw.create_command_pool(&vk_info, None)?;
+        let live_binder = if self.support_live_resource_binding {
+            let mut live_binder = super::LiveBinder::default();
+            let desc_pool = create_live_descriptor_pool(&self.shared.raw, 0)?;
+            live_binder.used_pools.push(desc_pool);
+            Some(live_binder)
+        } else {
+            None
+        };
 
         Ok(super::CommandEncoder {
             raw,
             device: Arc::clone(&self.shared),
             active: vk::CommandBuffer::null(),
             bind_point: vk::PipelineBindPoint::default(),
+            live_binder,
             temp: super::Temp::default(),
             free: Vec::new(),
             discarded: Vec::new(),
@@ -1099,13 +1293,10 @@ impl crate::Device<super::Api> for super::Device {
             if entry.binding as usize >= types.len() {
                 types.resize(
                     entry.binding as usize + 1,
-                    (vk::DescriptorType::INPUT_ATTACHMENT, 0),
+                    vk::DescriptorType::INPUT_ATTACHMENT,
                 );
             }
-            types[entry.binding as usize] = (
-                conv::map_binding_type(entry.ty),
-                entry.count.map_or(1, |c| c.get()),
-            );
+            types[entry.binding as usize] = conv::map_binding_type(entry.ty);
 
             match entry.ty {
                 wgt::BindingType::Buffer {
@@ -1146,8 +1337,8 @@ impl crate::Device<super::Api> for super::Device {
             .iter()
             .map(|entry| vk::DescriptorSetLayoutBinding {
                 binding: entry.binding,
-                descriptor_type: types[entry.binding as usize].0,
-                descriptor_count: types[entry.binding as usize].1,
+                descriptor_type: types[entry.binding as usize],
+                descriptor_count: entry.count.map_or(1, |c| c.get()),
                 stage_flags: conv::map_shader_stage(entry.visibility),
                 p_immutable_samplers: ptr::null(),
             })
@@ -1284,6 +1475,7 @@ impl crate::Device<super::Api> for super::Device {
         }
 
         let mut binding_arrays = BTreeMap::new();
+        let mut group_layouts = Vec::new();
         for (group, &layout) in desc.bind_group_layouts.iter().enumerate() {
             for &(binding, binding_array_size) in &layout.binding_arrays {
                 binding_arrays.insert(
@@ -1296,11 +1488,16 @@ impl crate::Device<super::Api> for super::Device {
                     },
                 );
             }
+            group_layouts.push(super::LiveBindGroupLayout {
+                raw: layout.raw,
+                types: layout.types.clone(),
+            });
         }
 
         Ok(super::PipelineLayout {
             raw,
             binding_arrays,
+            group_layouts,
         })
     }
     unsafe fn destroy_pipeline_layout(&self, pipeline_layout: super::PipelineLayout) {
@@ -1333,11 +1530,11 @@ impl crate::Device<super::Api> for super::Device {
 
         let mut writes = Vec::with_capacity(desc.entries.len());
         let mut buffer_infos = Vec::with_capacity(desc.resources.buffers.len());
-        let mut sampler_infos = Vec::with_capacity(desc.resources.samplers.len());
-        let mut image_infos = Vec::with_capacity(desc.resources.textures.len());
+        let mut image_infos =
+            Vec::with_capacity(desc.resources.textures.len() + desc.resources.samplers.len());
         for entry in desc.entries {
-            let (ty, size) = desc.layout.types[entry.binding as usize];
-            if size == 0 {
+            let ty = desc.layout.types[entry.binding as usize];
+            if ty == vk::DescriptorType::INPUT_ATTACHMENT {
                 continue; // empty slot
             }
             let mut write = vk::WriteDescriptorSet::builder()
@@ -1346,10 +1543,10 @@ impl crate::Device<super::Api> for super::Device {
                 .descriptor_type(ty);
             write = match ty {
                 vk::DescriptorType::SAMPLER => {
-                    let index = sampler_infos.len();
+                    let index = image_infos.len();
                     let start = entry.resource_index;
                     let end = start + entry.count;
-                    sampler_infos.extend(
+                    image_infos.extend(
                         desc.resources.samplers[start as usize..end as usize]
                             .iter()
                             .map(|binding| {
@@ -1358,7 +1555,7 @@ impl crate::Device<super::Api> for super::Device {
                                     .build()
                             }),
                     );
-                    write.image_info(&sampler_infos[index..])
+                    write.image_info(&image_infos[index..])
                 }
                 vk::DescriptorType::SAMPLED_IMAGE | vk::DescriptorType::STORAGE_IMAGE => {
                     let index = image_infos.len();

@@ -315,7 +315,8 @@ impl PhysicalDeviceFeatures {
             | F::TIMESTAMP_QUERY
             | F::WRITE_TIMESTAMP_INSIDE_PASSES
             | F::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
-            | F::CLEAR_TEXTURE;
+            | F::CLEAR_TEXTURE
+            | F::LIVE_RESOURCE_BINDING;
         let mut dl_flags = Df::all();
 
         dl_flags.set(Df::CUBE_ARRAY_TEXTURES, self.core.image_cube_array != 0);
@@ -1310,6 +1311,7 @@ impl super::Adapter {
             mem_allocator: Mutex::new(mem_allocator),
             desc_allocator: Mutex::new(desc_allocator),
             valid_ash_memory_types,
+            support_live_resource_binding: features.contains(wgt::Features::LIVE_RESOURCE_BINDING),
             naga_options,
             #[cfg(feature = "renderdoc")]
             render_doc: Default::default(),

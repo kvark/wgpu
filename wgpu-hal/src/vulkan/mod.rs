@@ -317,6 +317,7 @@ pub struct Device {
     desc_allocator:
         Mutex<gpu_descriptor::DescriptorAllocator<vk::DescriptorPool, vk::DescriptorSet>>,
     valid_ash_memory_types: u32,
+    support_live_resource_binding: bool,
     naga_options: naga::back::spv::Options,
     #[cfg(feature = "renderdoc")]
     render_doc: crate::auxil::renderdoc::RenderDoc,
@@ -381,20 +382,29 @@ pub struct Sampler {
     raw: vk::Sampler,
 }
 
+type DescriptorTypes = Box<[vk::DescriptorType]>;
+
 #[derive(Debug)]
 pub struct BindGroupLayout {
     raw: vk::DescriptorSetLayout,
     desc_count: gpu_descriptor::DescriptorTotalCount,
-    types: Box<[(vk::DescriptorType, u32)]>,
+    types: DescriptorTypes,
     /// Map of binding index to size,
     binding_arrays: Vec<(u32, NonZeroU32)>,
     requires_update_after_bind: bool,
 }
 
 #[derive(Debug)]
+struct LiveBindGroupLayout {
+    raw: vk::DescriptorSetLayout,
+    types: DescriptorTypes,
+}
+
+#[derive(Debug)]
 pub struct PipelineLayout {
     raw: vk::PipelineLayout,
     binding_arrays: naga::back::spv::BindingMap,
+    group_layouts: Vec<LiveBindGroupLayout>,
 }
 
 #[derive(Debug)]
@@ -428,11 +438,23 @@ impl Temp {
     }
 }
 
+#[derive(Default)]
+struct LiveBinder {
+    used_pools: Vec<vk::DescriptorPool>,
+    free_pools: Vec<vk::DescriptorPool>,
+    writes: Vec<vk::WriteDescriptorSet>,
+    info_buffers: Vec<vk::DescriptorBufferInfo>,
+    info_images: Vec<vk::DescriptorImageInfo>,
+}
+unsafe impl Send for LiveBinder {}
+unsafe impl Sync for LiveBinder {}
+
 pub struct CommandEncoder {
     raw: vk::CommandPool,
     device: Arc<DeviceShared>,
     active: vk::CommandBuffer,
     bind_point: vk::PipelineBindPoint,
+    live_binder: Option<LiveBinder>,
     temp: Temp,
     free: Vec<vk::CommandBuffer>,
     discarded: Vec<vk::CommandBuffer>,
