@@ -604,6 +604,19 @@ impl crate::CommandEncoder<super::Api> for super::CommandEncoder {
         }
     }
 
+    unsafe fn set_bind_group_resources(
+        &mut self,
+        layout: &super::PipelineLayout,
+        group_index: u32,
+        resources: crate::BindGroupResources<super::Api>,
+        entries: &[crate::BindGroupEntry],
+    ) {
+        //TODO: can optimize this to avoid allocations.
+        let bg_info = &layout.bind_group_infos[group_index as usize];
+        let group = super::BindGroup::new(bg_info.entries.as_ref().unwrap(), entries, resources);
+        self.set_bind_group(layout, group_index, &group, &[]);
+    }
+
     unsafe fn set_push_constants(
         &mut self,
         layout: &super::PipelineLayout,

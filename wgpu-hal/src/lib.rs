@@ -428,6 +428,15 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
         dynamic_offsets: &[wgt::DynamicOffset],
     );
 
+    /// Requires `Features::LIVE_RESOURCE_BINDING` to be enabled on the device,
+    unsafe fn set_bind_group_resources(
+        &mut self,
+        layout: &A::PipelineLayout,
+        index: u32,
+        resources: BindGroupResources<A>,
+        entries: &[BindGroupEntry],
+    );
+
     unsafe fn set_push_constants(
         &mut self,
         layout: &A::PipelineLayout,
@@ -918,6 +927,24 @@ pub struct BindGroupEntry {
     pub count: u32,
 }
 
+/// Resources for creating a bind group.
+#[derive(Debug)]
+pub struct BindGroupResources<'a, A: Api> {
+    pub buffers: &'a [BufferBinding<'a, A>],
+    pub samplers: &'a [&'a A::Sampler],
+    pub textures: &'a [TextureBinding<'a, A>],
+}
+
+impl<'a, A: Api> Clone for BindGroupResources<'a, A> {
+    fn clone(&self) -> Self {
+        Self {
+            buffers: self.buffers,
+            samplers: self.samplers,
+            textures: self.textures,
+        }
+    }
+}
+
 /// BindGroup descriptor.
 ///
 /// Valid usage:
@@ -931,9 +958,7 @@ pub struct BindGroupEntry {
 pub struct BindGroupDescriptor<'a, A: Api> {
     pub label: Label<'a>,
     pub layout: &'a A::BindGroupLayout,
-    pub buffers: &'a [BufferBinding<'a, A>],
-    pub samplers: &'a [&'a A::Sampler],
-    pub textures: &'a [TextureBinding<'a, A>],
+    pub resources: BindGroupResources<'a, A>,
     pub entries: &'a [BindGroupEntry],
 }
 

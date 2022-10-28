@@ -794,6 +794,15 @@ impl crate::CommandEncoder<super::Api> for super::CommandEncoder {
             self.reset_signature(&layout.shared);
         };
     }
+    unsafe fn set_bind_group_resources(
+        &mut self,
+        _layout: &super::PipelineLayout,
+        _index: u32,
+        _resources: crate::BindGroupResources<super::Api>,
+        _entries: &[crate::BindGroupEntry],
+    ) {
+        unimplemented!()
+    }
     unsafe fn set_push_constants(
         &mut self,
         layout: &super::PipelineLayout,

@@ -49,6 +49,87 @@ fn create_depth_stencil_desc(state: &wgt::DepthStencilState) -> mtl::DepthStenci
     desc
 }
 
+impl super::BindGroup {
+    pub(super) fn new(
+        layout_entries: &[wgt::BindGroupLayoutEntry],
+        entries: &[crate::BindGroupEntry],
+        resources: crate::BindGroupResources<super::Api>,
+    ) -> Self {
+        let mut bg = Self::default();
+        for (&stage, counter) in super::NAGA_STAGES.iter().zip(bg.counters.iter_mut()) {
+            let stage_bit = map_naga_stage(stage);
+            let mut dynamic_offsets_count = 0u32;
+            for (entry, layout) in entries.iter().zip(layout_entries.iter()) {
+                let size = layout.count.map_or(1, |c| c.get());
+                if let wgt::BindingType::Buffer {
+                    has_dynamic_offset: true,
+                    ..
+                } = layout.ty
+                {
+                    dynamic_offsets_count += size;
+                }
+                if !layout.visibility.contains(stage_bit) {
+                    continue;
+                }
+                match layout.ty {
+                    wgt::BindingType::Buffer {
+                        ty,
+                        has_dynamic_offset,
+                        ..
+                    } => {
+                        let start = entry.resource_index as usize;
+                        let end = start + size as usize;
+                        bg.buffers
+                            .extend(resources.buffers[start..end].iter().map(|source| {
+                                let remaining_size =
+                                    wgt::BufferSize::new(source.buffer.size - source.offset);
+                                let binding_size = match ty {
+                                    wgt::BufferBindingType::Storage { .. } => {
+                                        source.size.or(remaining_size)
+                                    }
+                                    _ => None,
+                                };
+                                super::BufferResource {
+                                    ptr: source.buffer.as_raw(),
+                                    offset: source.offset,
+                                    dynamic_index: if has_dynamic_offset {
+                                        Some(dynamic_offsets_count - 1)
+                                    } else {
+                                        None
+                                    },
+                                    binding_size,
+                                    binding_location: layout.binding,
+                                }
+                            }));
+                        counter.buffers += 1;
+                    }
+                    wgt::BindingType::Sampler { .. } => {
+                        let start = entry.resource_index as usize;
+                        let end = start + size as usize;
+                        bg.samplers.extend(
+                            resources.samplers[start..end]
+                                .iter()
+                                .map(|samp| samp.as_raw()),
+                        );
+                        counter.samplers += size;
+                    }
+                    wgt::BindingType::Texture { .. } | wgt::BindingType::StorageTexture { .. } => {
+                        let start = entry.resource_index as usize;
+                        let end = start + size as usize;
+                        bg.textures.extend(
+                            resources.textures[start..end]
+                                .iter()
+                                .map(|tex| tex.view.as_raw()),
+                        );
+                        counter.textures += size;
+                    }
+                }
+            }
+        }
+        bg
+    }
+}
+
 impl super::Device {
     fn load_shader(
         &self,
@@ -615,6 +696,7 @@ impl crate::Device<super::Api> for super::Device {
 
             bind_group_infos.push(super::BindGroupLayoutInfo {
                 base_resource_indices,
+                entries: Some(Arc::clone(&bgl.entries)),
             });
         }
 
@@ -698,76 +780,11 @@ impl crate::Device<super::Api> for super::Device {
         &self,
         desc: &crate::BindGroupDescriptor<super::Api>,
     ) -> DeviceResult<super::BindGroup> {
-        let mut bg = super::BindGroup::default();
-        for (&stage, counter) in super::NAGA_STAGES.iter().zip(bg.counters.iter_mut()) {
-            let stage_bit = map_naga_stage(stage);
-            let mut dynamic_offsets_count = 0u32;
-            for (entry, layout) in desc.entries.iter().zip(desc.layout.entries.iter()) {
-                let size = layout.count.map_or(1, |c| c.get());
-                if let wgt::BindingType::Buffer {
-                    has_dynamic_offset: true,
-                    ..
-                } = layout.ty
-                {
-                    dynamic_offsets_count += size;
-                }
-                if !layout.visibility.contains(stage_bit) {
-                    continue;
-                }
-                match layout.ty {
-                    wgt::BindingType::Buffer {
-                        ty,
-                        has_dynamic_offset,
-                        ..
-                    } => {
-                        let start = entry.resource_index as usize;
-                        let end = start + size as usize;
-                        bg.buffers
-                            .extend(desc.buffers[start..end].iter().map(|source| {
-                                let remaining_size =
-                                    wgt::BufferSize::new(source.buffer.size - source.offset);
-                                let binding_size = match ty {
-                                    wgt::BufferBindingType::Storage { .. } => {
-                                        source.size.or(remaining_size)
-                                    }
-                                    _ => None,
-                                };
-                                super::BufferResource {
-                                    ptr: source.buffer.as_raw(),
-                                    offset: source.offset,
-                                    dynamic_index: if has_dynamic_offset {
-                                        Some(dynamic_offsets_count - 1)
-                                    } else {
-                                        None
-                                    },
-                                    binding_size,
-                                    binding_location: layout.binding,
-                                }
-                            }));
-                        counter.buffers += 1;
-                    }
-                    wgt::BindingType::Sampler { .. } => {
-                        let start = entry.resource_index as usize;
-                        let end = start + size as usize;
-                        bg.samplers
-                            .extend(desc.samplers[start..end].iter().map(|samp| samp.as_raw()));
-                        counter.samplers += size;
-                    }
-                    wgt::BindingType::Texture { .. } | wgt::BindingType::StorageTexture { .. } => {
-                        let start = entry.resource_index as usize;
-                        let end = start + size as usize;
-                        bg.textures.extend(
-                            desc.textures[start..end]
-                                .iter()
-                                .map(|tex| tex.view.as_raw()),
-                        );
-                        counter.textures += size;
-                    }
-                }
-            }
-        }
-
-        Ok(bg)
+        Ok(super::BindGroup::new(
+            &desc.layout.entries,
+            &desc.entries,
+            desc.resources.clone(),
+        ))
     }
 
     unsafe fn destroy_bind_group(&self, _group: super::BindGroup) {}

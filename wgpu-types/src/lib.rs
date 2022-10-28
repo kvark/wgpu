@@ -637,6 +637,17 @@ bitflags::bitflags! {
         /// - DX12
         /// - Metal (Intel and AMD GPUs)
         const WRITE_TIMESTAMP_INSIDE_PASSES = 1 << 41;
+        /// Enables resource binding directly to command encoders.
+        ///
+        /// Allows the user to call [`RenderPass::set_push_resources`].
+        ///
+        /// Supported Platforms:
+        /// - Vulkan
+        /// - Metal
+        /// - OpenGL
+        ///
+        /// This is a native-only feature.
+        const LIVE_RESOURCE_BINDING = 1 << 42;
     }
 }
 

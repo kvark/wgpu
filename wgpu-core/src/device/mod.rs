@@ -1999,10 +1999,12 @@ impl<A: HalApi> Device<A> {
         let hal_desc = hal::BindGroupDescriptor {
             label: desc.label.borrow_option(),
             layout: &layout.raw,
+            resources: hal::BindGroupResources {
+                buffers: &hal_buffers,
+                samplers: &hal_samplers,
+                textures: &hal_textures,
+            },
             entries: &hal_entries,
-            buffers: &hal_buffers,
-            samplers: &hal_samplers,
-            textures: &hal_textures,
         };
         let raw = unsafe {
             self.raw

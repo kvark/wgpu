@@ -770,7 +770,8 @@ impl super::PrivateCapabilities {
             | F::TEXTURE_FORMAT_16BIT_NORM
             | F::SHADER_FLOAT16
             | F::DEPTH32FLOAT_STENCIL8
-            | F::MULTI_DRAW_INDIRECT;
+            | F::MULTI_DRAW_INDIRECT
+            | F::LIVE_RESOURCE_BINDING;
 
         features.set(F::TEXTURE_COMPRESSION_ASTC_LDR, self.format_astc);
         features.set(F::TEXTURE_COMPRESSION_ASTC_HDR, self.format_astc_hdr);

@@ -92,6 +92,16 @@ impl crate::CommandEncoder<super::Api> for super::CommandEncoder {
         todo!()
     }
 
+    unsafe fn set_bind_group_resources(
+        &mut self,
+        layout: &super::PipelineLayout,
+        index: u32,
+        resources: crate::BindGroupResources<super::Api>,
+        entries: &[crate::BindGroupEntry],
+    ) {
+        todo!()
+    }
+
     unsafe fn set_push_constants(
         &mut self,
         layout: &super::PipelineLayout,

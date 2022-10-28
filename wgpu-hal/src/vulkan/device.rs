@@ -1332,9 +1332,9 @@ impl crate::Device<super::Api> for super::Device {
         }
 
         let mut writes = Vec::with_capacity(desc.entries.len());
-        let mut buffer_infos = Vec::with_capacity(desc.buffers.len());
-        let mut sampler_infos = Vec::with_capacity(desc.samplers.len());
-        let mut image_infos = Vec::with_capacity(desc.textures.len());
+        let mut buffer_infos = Vec::with_capacity(desc.resources.buffers.len());
+        let mut sampler_infos = Vec::with_capacity(desc.resources.samplers.len());
+        let mut image_infos = Vec::with_capacity(desc.resources.textures.len());
         for entry in desc.entries {
             let (ty, size) = desc.layout.types[entry.binding as usize];
             if size == 0 {
@@ -1349,29 +1349,35 @@ impl crate::Device<super::Api> for super::Device {
                     let index = sampler_infos.len();
                     let start = entry.resource_index;
                     let end = start + entry.count;
-                    sampler_infos.extend(desc.samplers[start as usize..end as usize].iter().map(
-                        |binding| {
-                            vk::DescriptorImageInfo::builder()
-                                .sampler(binding.raw)
-                                .build()
-                        },
-                    ));
+                    sampler_infos.extend(
+                        desc.resources.samplers[start as usize..end as usize]
+                            .iter()
+                            .map(|binding| {
+                                vk::DescriptorImageInfo::builder()
+                                    .sampler(binding.raw)
+                                    .build()
+                            }),
+                    );
                     write.image_info(&sampler_infos[index..])
                 }
                 vk::DescriptorType::SAMPLED_IMAGE | vk::DescriptorType::STORAGE_IMAGE => {
                     let index = image_infos.len();
                     let start = entry.resource_index;
                     let end = start + entry.count;
-                    image_infos.extend(desc.textures[start as usize..end as usize].iter().map(
-                        |binding| {
-                            let layout =
-                                conv::derive_image_layout(binding.usage, binding.view.aspects());
-                            vk::DescriptorImageInfo::builder()
-                                .image_view(binding.view.raw)
-                                .image_layout(layout)
-                                .build()
-                        },
-                    ));
+                    image_infos.extend(
+                        desc.resources.textures[start as usize..end as usize]
+                            .iter()
+                            .map(|binding| {
+                                let layout = conv::derive_image_layout(
+                                    binding.usage,
+                                    binding.view.aspects(),
+                                );
+                                vk::DescriptorImageInfo::builder()
+                                    .image_view(binding.view.raw)
+                                    .image_layout(layout)
+                                    .build()
+                            }),
+                    );
                     write.image_info(&image_infos[index..])
                 }
                 vk::DescriptorType::UNIFORM_BUFFER
@@ -1381,15 +1387,19 @@ impl crate::Device<super::Api> for super::Device {
                     let index = buffer_infos.len();
                     let start = entry.resource_index;
                     let end = start + entry.count;
-                    buffer_infos.extend(desc.buffers[start as usize..end as usize].iter().map(
-                        |binding| {
-                            vk::DescriptorBufferInfo::builder()
-                                .buffer(binding.buffer.raw)
-                                .offset(binding.offset)
-                                .range(binding.size.map_or(vk::WHOLE_SIZE, wgt::BufferSize::get))
-                                .build()
-                        },
-                    ));
+                    buffer_infos.extend(
+                        desc.resources.buffers[start as usize..end as usize]
+                            .iter()
+                            .map(|binding| {
+                                vk::DescriptorBufferInfo::builder()
+                                    .buffer(binding.buffer.raw)
+                                    .offset(binding.offset)
+                                    .range(
+                                        binding.size.map_or(vk::WHOLE_SIZE, wgt::BufferSize::get),
+                                    )
+                                    .build()
+                            }),
+                    );
                     write.buffer_info(&buffer_infos[index..])
                 }
                 _ => unreachable!(),

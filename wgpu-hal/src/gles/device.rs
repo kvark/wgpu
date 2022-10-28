@@ -84,6 +84,70 @@ impl CompilationContext<'_> {
     }
 }
 
+impl super::BindGroup {
+    pub(super) fn new(
+        layout_entries: &[wgt::BindGroupLayoutEntry],
+        entries: &[crate::BindGroupEntry],
+        resources: crate::BindGroupResources<super::Api>,
+    ) -> Self {
+        let mut contents = Vec::new();
+
+        for (entry, layout) in entries.iter().zip(layout_entries.iter()) {
+            let binding = match layout.ty {
+                wgt::BindingType::Buffer { .. } => {
+                    let bb = &resources.buffers[entry.resource_index as usize];
+                    super::RawBinding::Buffer {
+                        raw: bb.buffer.raw.unwrap(),
+                        offset: bb.offset as i32,
+                        size: match bb.size {
+                            Some(s) => s.get() as i32,
+                            None => (bb.buffer.size - bb.offset) as i32,
+                        },
+                    }
+                }
+                wgt::BindingType::Sampler { .. } => {
+                    let sampler = resources.samplers[entry.resource_index as usize];
+                    super::RawBinding::Sampler(sampler.raw)
+                }
+                wgt::BindingType::Texture { .. } => {
+                    let view = resources.textures[entry.resource_index as usize].view;
+                    if view.mip_levels.start != 0 || view.array_layers.start != 0 {
+                        log::error!("Unable to create a sampled texture binding for non-zero mipmap level or array layer.\n{}",
+                            "This is an implementation problem of wgpu-hal/gles backend.")
+                    }
+                    let (raw, target) = view.inner.as_native();
+                    super::RawBinding::Texture { raw, target }
+                }
+                wgt::BindingType::StorageTexture {
+                    access,
+                    format,
+                    view_dimension,
+                } => {
+                    let view = resources.textures[entry.resource_index as usize].view;
+                    let format_desc = self.shared.describe_texture_format(format);
+                    let (raw, _target) = view.inner.as_native();
+                    super::RawBinding::Image(super::ImageBinding {
+                        raw,
+                        mip_level: view.mip_levels.start,
+                        array_layer: match view_dimension {
+                            wgt::TextureViewDimension::D2Array
+                            | wgt::TextureViewDimension::CubeArray => None,
+                            _ => Some(view.array_layers.start),
+                        },
+                        access: conv::map_storage_access(access),
+                        format: format_desc.internal,
+                    })
+                }
+            };
+            contents.push(binding);
+        }
+
+        super::BindGroup {
+            contents: contents.into_boxed_slice(),
+        }
+    }
+}
+
 impl super::Device {
     /// # Safety
     ///
@@ -950,61 +1014,11 @@ impl crate::Device<super::Api> for super::Device {
         &self,
         desc: &crate::BindGroupDescriptor<super::Api>,
     ) -> Result<super::BindGroup, crate::DeviceError> {
-        let mut contents = Vec::new();
-
-        for (entry, layout) in desc.entries.iter().zip(desc.layout.entries.iter()) {
-            let binding = match layout.ty {
-                wgt::BindingType::Buffer { .. } => {
-                    let bb = &desc.buffers[entry.resource_index as usize];
-                    super::RawBinding::Buffer {
-                        raw: bb.buffer.raw.unwrap(),
-                        offset: bb.offset as i32,
-                        size: match bb.size {
-                            Some(s) => s.get() as i32,
-                            None => (bb.buffer.size - bb.offset) as i32,
-                        },
-                    }
-                }
-                wgt::BindingType::Sampler { .. } => {
-                    let sampler = desc.samplers[entry.resource_index as usize];
-                    super::RawBinding::Sampler(sampler.raw)
-                }
-                wgt::BindingType::Texture { .. } => {
-                    let view = desc.textures[entry.resource_index as usize].view;
-                    if view.mip_levels.start != 0 || view.array_layers.start != 0 {
-                        log::error!("Unable to create a sampled texture binding for non-zero mipmap level or array layer.\n{}",
-                            "This is an implementation problem of wgpu-hal/gles backend.")
-                    }
-                    let (raw, target) = view.inner.as_native();
-                    super::RawBinding::Texture { raw, target }
-                }
-                wgt::BindingType::StorageTexture {
-                    access,
-                    format,
-                    view_dimension,
-                } => {
-                    let view = desc.textures[entry.resource_index as usize].view;
-                    let format_desc = self.shared.describe_texture_format(format);
-                    let (raw, _target) = view.inner.as_native();
-                    super::RawBinding::Image(super::ImageBinding {
-                        raw,
-                        mip_level: view.mip_levels.start,
-                        array_layer: match view_dimension {
-                            wgt::TextureViewDimension::D2Array
-                            | wgt::TextureViewDimension::CubeArray => None,
-                            _ => Some(view.array_layers.start),
-                        },
-                        access: conv::map_storage_access(access),
-                        format: format_desc.internal,
-                    })
-                }
-            };
-            contents.push(binding);
-        }
-
-        Ok(super::BindGroup {
-            contents: contents.into_boxed_slice(),
-        })
+        Ok(super::BindGroup::new(
+            &desc.layout.entries,
+            &desc.entries,
+            desc.resources.clone(),
+        ))
     }
     unsafe fn destroy_bind_group(&self, _group: super::BindGroup) {}
 

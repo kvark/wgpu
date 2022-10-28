@@ -306,6 +306,14 @@ impl crate::CommandEncoder<Api> for Encoder {
         dynamic_offsets: &[wgt::DynamicOffset],
     ) {
     }
+    unsafe fn set_bind_group_resources(
+        &mut self,
+        layout: &Resource,
+        index: u32,
+        resources: crate::BindGroupResources<Api>,
+        entries: &[crate::BindGroupEntry],
+    ) {
+    }
     unsafe fn set_push_constants(
         &mut self,
         layout: &Resource,

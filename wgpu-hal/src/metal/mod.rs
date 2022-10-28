@@ -516,6 +516,7 @@ type MultiStageResourceCounters = MultiStageData<ResourceData<ResourceIndex>>;
 #[derive(Debug)]
 struct BindGroupLayoutInfo {
     base_resource_indices: MultiStageResourceCounters,
+    entries: Option<Arc<[wgt::BindGroupLayoutEntry]>>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

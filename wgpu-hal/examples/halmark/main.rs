@@ -426,9 +426,11 @@ impl<A: hal::Api> Example<A> {
             let global_group_desc = hal::BindGroupDescriptor {
                 label: Some("global"),
                 layout: &global_group_layout,
-                buffers: &[global_buffer_binding],
-                samplers: &[&sampler],
-                textures: &[texture_binding],
+                resources: hal::BindGroupResources {
+                    buffers: &[global_buffer_binding],
+                    samplers: &[&sampler],
+                    textures: &[texture_binding],
+                },
                 entries: &[
                     hal::BindGroupEntry {
                         binding: 0,
@@ -459,9 +461,11 @@ impl<A: hal::Api> Example<A> {
             let local_group_desc = hal::BindGroupDescriptor {
                 label: Some("local"),
                 layout: &local_group_layout,
-                buffers: &[local_buffer_binding],
-                samplers: &[],
-                textures: &[],
+                resources: hal::BindGroupResources {
+                    buffers: &[local_buffer_binding],
+                    samplers: &[],
+                    textures: &[],
+                },
                 entries: &[hal::BindGroupEntry {
                     binding: 0,
                     resource_index: 0,
