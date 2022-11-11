@@ -1489,7 +1489,7 @@ impl crate::Context for Context {
                             buffer.min_binding_size(size.get() as f64);
                         }
                         buffer.type_(match ty {
-                            wgt::BufferBindingType::Uniform => {
+                            wgt::BufferBindingType::Uniform { inline: _ } => {
                                 web_sys::GpuBufferBindingType::Uniform
                             }
                             wgt::BufferBindingType::Storage { read_only: false } => {

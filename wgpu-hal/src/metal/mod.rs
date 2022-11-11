@@ -581,12 +581,17 @@ impl AsNative for SamplerPtr {
 }
 
 #[derive(Debug)]
-struct BufferResource {
-    ptr: BufferPtr,
-    offset: wgt::BufferAddress,
-    dynamic_index: Option<u32>,
-    binding_size: Option<wgt::BufferSize>,
-    binding_location: u32,
+enum BufferResource {
+    Allocated {
+        ptr: BufferPtr,
+        offset: wgt::BufferAddress,
+        dynamic_index: Option<u32>,
+        binding_size: Option<wgt::BufferSize>,
+        binding_location: u32,
+    },
+    Inline {
+        data: Box<[u8]>,
+    },
 }
 
 #[derive(Debug, Default)]

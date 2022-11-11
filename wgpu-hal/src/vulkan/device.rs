@@ -1247,7 +1247,7 @@ impl crate::Device<super::Api> for super::Device {
             .flags(vk::CommandPoolCreateFlags::TRANSIENT)
             .build();
         let raw = self.shared.raw.create_command_pool(&vk_info, None)?;
-        let live_binder = if self.support_live_resource_binding {
+        let live_binder = if self.support_direct_resource_binding {
             let mut live_binder = super::LiveBinder::default();
             let desc_pool = create_live_descriptor_pool(&self.shared.raw, 0)?;
             live_binder.used_pools.push(desc_pool);
@@ -1304,8 +1304,10 @@ impl crate::Device<super::Api> for super::Device {
                     has_dynamic_offset,
                     ..
                 } => match ty {
-                    wgt::BufferBindingType::Uniform => {
-                        if has_dynamic_offset {
+                    wgt::BufferBindingType::Uniform { inline } => {
+                        if inline {
+                            desc_count.inline_uniform_block_bytes += count;
+                        } else if has_dynamic_offset {
                             desc_count.uniform_buffer_dynamic += count;
                         } else {
                             desc_count.uniform_buffer += count;
@@ -1374,7 +1376,7 @@ impl crate::Device<super::Api> for super::Device {
 
                     let uab_type = match entry.ty {
                         wgt::BindingType::Buffer {
-                            ty: wgt::BufferBindingType::Uniform,
+                            ty: wgt::BufferBindingType::Uniform { .. },
                             ..
                         } => super::UpdateAfterBindTypes::UNIFORM_BUFFER,
                         wgt::BindingType::Buffer {
@@ -1532,6 +1534,7 @@ impl crate::Device<super::Api> for super::Device {
         let mut buffer_infos = Vec::with_capacity(desc.resources.buffers.len());
         let mut image_infos =
             Vec::with_capacity(desc.resources.textures.len() + desc.resources.samplers.len());
+        let mut inline_blocks = Vec::with_capacity(desc.resources.inline_blocks.len());
         for entry in desc.entries {
             let ty = desc.layout.types[entry.binding as usize];
             if ty == vk::DescriptorType::INPUT_ATTACHMENT {
@@ -1598,6 +1601,15 @@ impl crate::Device<super::Api> for super::Device {
                             }),
                     );
                     write.buffer_info(&buffer_infos[index..])
+                }
+                vk::DescriptorType::INLINE_UNIFORM_BLOCK_EXT => {
+                    let index = inline_blocks.len();
+                    inline_blocks.push(
+                        vk::WriteDescriptorSetInlineUniformBlockExt::builder()
+                            .data(desc.resources.inline_blocks[entry.resource_index as usize])
+                            .build(),
+                    );
+                    write.push_next(inline_blocks.last_mut().unwrap())
                 }
                 _ => unreachable!(),
             };

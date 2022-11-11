@@ -428,7 +428,7 @@ impl super::Instance {
         Ok(self.create_surface_from_vk_surface_khr(surface))
     }
 
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(feature = "metal")]
     fn create_surface_from_view(
         &self,
         view: *mut c_void,
@@ -638,13 +638,13 @@ impl crate::Instance<super::Api> for super::Instance {
                 let hinstance = GetModuleHandleW(std::ptr::null());
                 self.create_surface_from_hwnd(hinstance as *mut _, handle.hwnd)
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", feature = "metal"))]
             (Rwh::AppKit(handle), _)
                 if self.shared.extensions.contains(&ext::MetalSurface::name()) =>
             {
                 self.create_surface_from_view(handle.ns_view)
             }
-            #[cfg(target_os = "ios")]
+            #[cfg(all(target_os = "ios", feature = "metal"))]
             (Rwh::UiKit(handle), _)
                 if self.shared.extensions.contains(&ext::MetalSurface::name()) =>
             {

@@ -449,23 +449,35 @@ impl crate::CommandEncoder<super::Api> for super::CommandEncoder {
         if let Some(ref encoder) = self.state.render {
             let mut changes_sizes_buffer = false;
             for index in 0..group.counters.vs.buffers {
-                let buf = &group.buffers[index as usize];
-                let mut offset = buf.offset;
-                if let Some(dyn_index) = buf.dynamic_index {
-                    offset += dynamic_offsets[dyn_index as usize] as wgt::BufferAddress;
-                }
-                encoder.set_vertex_buffer(
-                    (bg_info.base_resource_indices.vs.buffers + index) as u64,
-                    Some(buf.ptr.as_native()),
-                    offset,
-                );
-                if let Some(size) = buf.binding_size {
-                    let br = naga::ResourceBinding {
-                        group: group_index,
-                        binding: buf.binding_location,
-                    };
-                    self.state.storage_buffer_length_map.insert(br, size);
-                    changes_sizes_buffer = true;
+                let target_index = (bg_info.base_resource_indices.vs.buffers + index) as u64;
+                match group.buffers[index as usize] {
+                    super::BufferResource::Allocated {
+                        ptr,
+                        mut offset,
+                        dynamic_index,
+                        binding_size,
+                        binding_location,
+                    } => {
+                        if let Some(dyn_index) = dynamic_index {
+                            offset += dynamic_offsets[dyn_index as usize] as wgt::BufferAddress;
+                        }
+                        encoder.set_vertex_buffer(target_index, Some(ptr.as_native()), offset);
+                        if let Some(size) = binding_size {
+                            let br = naga::ResourceBinding {
+                                group: group_index,
+                                binding: binding_location,
+                            };
+                            self.state.storage_buffer_length_map.insert(br, size);
+                            changes_sizes_buffer = true;
+                        }
+                    }
+                    super::BufferResource::Inline { ref data } => {
+                        encoder.set_vertex_bytes(
+                            target_index,
+                            data.len() as u64,
+                            data.as_ptr() as *const _,
+                        );
+                    }
                 }
             }
             if changes_sizes_buffer {
@@ -483,23 +495,35 @@ impl crate::CommandEncoder<super::Api> for super::CommandEncoder {
 
             changes_sizes_buffer = false;
             for index in 0..group.counters.fs.buffers {
-                let buf = &group.buffers[(group.counters.vs.buffers + index) as usize];
-                let mut offset = buf.offset;
-                if let Some(dyn_index) = buf.dynamic_index {
-                    offset += dynamic_offsets[dyn_index as usize] as wgt::BufferAddress;
-                }
-                encoder.set_fragment_buffer(
-                    (bg_info.base_resource_indices.fs.buffers + index) as u64,
-                    Some(buf.ptr.as_native()),
-                    offset,
-                );
-                if let Some(size) = buf.binding_size {
-                    let br = naga::ResourceBinding {
-                        group: group_index,
-                        binding: buf.binding_location,
-                    };
-                    self.state.storage_buffer_length_map.insert(br, size);
-                    changes_sizes_buffer = true;
+                let target_index = (bg_info.base_resource_indices.fs.buffers + index) as u64;
+                match group.buffers[(group.counters.vs.buffers + index) as usize] {
+                    super::BufferResource::Allocated {
+                        ptr,
+                        mut offset,
+                        dynamic_index,
+                        binding_size,
+                        binding_location,
+                    } => {
+                        if let Some(dyn_index) = dynamic_index {
+                            offset += dynamic_offsets[dyn_index as usize] as wgt::BufferAddress;
+                        }
+                        encoder.set_fragment_buffer(target_index, Some(ptr.as_native()), offset);
+                        if let Some(size) = binding_size {
+                            let br = naga::ResourceBinding {
+                                group: group_index,
+                                binding: binding_location,
+                            };
+                            self.state.storage_buffer_length_map.insert(br, size);
+                            changes_sizes_buffer = true;
+                        }
+                    }
+                    super::BufferResource::Inline { ref data } => {
+                        encoder.set_fragment_bytes(
+                            target_index,
+                            data.len() as u64,
+                            data.as_ptr() as *const _,
+                        );
+                    }
                 }
             }
             if changes_sizes_buffer {
@@ -555,23 +579,39 @@ impl crate::CommandEncoder<super::Api> for super::CommandEncoder {
 
             let mut changes_sizes_buffer = false;
             for index in 0..group.counters.cs.buffers {
-                let buf = &group.buffers[(index_base.buffers + index) as usize];
-                let mut offset = buf.offset;
-                if let Some(dyn_index) = buf.dynamic_index {
-                    offset += dynamic_offsets[dyn_index as usize] as wgt::BufferAddress;
-                }
-                encoder.set_buffer(
-                    (bg_info.base_resource_indices.cs.buffers + index) as u64,
-                    Some(buf.ptr.as_native()),
-                    offset,
-                );
-                if let Some(size) = buf.binding_size {
-                    let br = naga::ResourceBinding {
-                        group: group_index,
-                        binding: buf.binding_location,
-                    };
-                    self.state.storage_buffer_length_map.insert(br, size);
-                    changes_sizes_buffer = true;
+                let target_index = (bg_info.base_resource_indices.fs.buffers + index) as u64;
+                match group.buffers[(index_base.buffers + index) as usize] {
+                    super::BufferResource::Allocated {
+                        ptr,
+                        mut offset,
+                        dynamic_index,
+                        binding_size,
+                        binding_location,
+                    } => {
+                        if let Some(dyn_index) = dynamic_index {
+                            offset += dynamic_offsets[dyn_index as usize] as wgt::BufferAddress;
+                        }
+                        encoder.set_buffer(
+                            (bg_info.base_resource_indices.cs.buffers + index) as u64,
+                            Some(ptr.as_native()),
+                            offset,
+                        );
+                        if let Some(size) = binding_size {
+                            let br = naga::ResourceBinding {
+                                group: group_index,
+                                binding: binding_location,
+                            };
+                            self.state.storage_buffer_length_map.insert(br, size);
+                            changes_sizes_buffer = true;
+                        }
+                    }
+                    super::BufferResource::Inline { ref data } => {
+                        encoder.set_bytes(
+                            target_index,
+                            data.len() as u64,
+                            data.as_ptr() as *const _,
+                        );
+                    }
                 }
             }
             if changes_sizes_buffer {

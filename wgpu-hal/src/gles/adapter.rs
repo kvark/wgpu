@@ -317,7 +317,7 @@ impl super::Adapter {
             | wgt::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
             | wgt::Features::CLEAR_TEXTURE
             | wgt::Features::PUSH_CONSTANTS
-            | wgt::Features::LIVE_RESOURCE_BINDING;
+            | wgt::Features::DIRECT_RESOURCE_BINDING;
         features.set(
             wgt::Features::ADDRESS_MODE_CLAMP_TO_BORDER | wgt::Features::ADDRESS_MODE_CLAMP_TO_ZERO,
             extensions.contains("GL_EXT_texture_border_clamp"),

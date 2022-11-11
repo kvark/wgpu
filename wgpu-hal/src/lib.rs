@@ -428,7 +428,7 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
         dynamic_offsets: &[wgt::DynamicOffset],
     );
 
-    /// Requires `Features::LIVE_RESOURCE_BINDING` to be enabled on the device,
+    /// Requires `Features::DIRECT_RESOURCE_BINDING` to be enabled on the device,
     unsafe fn set_bind_group_resources(
         &mut self,
         layout: &A::PipelineLayout,
@@ -931,6 +931,7 @@ pub struct BindGroupEntry {
 #[derive(Debug)]
 pub struct BindGroupResources<'a, A: Api> {
     pub buffers: &'a [BufferBinding<'a, A>],
+    pub inline_blocks: &'a [&'a [u8]],
     pub samplers: &'a [&'a A::Sampler],
     pub textures: &'a [TextureBinding<'a, A>],
 }
@@ -939,6 +940,7 @@ impl<'a, A: Api> Clone for BindGroupResources<'a, A> {
     fn clone(&self) -> Self {
         Self {
             buffers: self.buffers,
+            inline_blocks: self.inline_blocks,
             samplers: self.samplers,
             textures: self.textures,
         }

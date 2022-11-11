@@ -23,6 +23,7 @@ pub struct PhysicalDeviceFeatures {
     depth_clip_enable: Option<vk::PhysicalDeviceDepthClipEnableFeaturesEXT>,
     multiview: Option<vk::PhysicalDeviceMultiviewFeaturesKHR>,
     astc_hdr: Option<vk::PhysicalDeviceTextureCompressionASTCHDRFeaturesEXT>,
+    inline_uniform_block: Option<vk::PhysicalDeviceInlineUniformBlockFeaturesEXT>,
     shader_float16: Option<(
         vk::PhysicalDeviceShaderFloat16Int8Features,
         vk::PhysicalDevice16BitStorageFeatures,
@@ -59,6 +60,9 @@ impl PhysicalDeviceFeatures {
             info = info.push_next(feature);
         }
         if let Some(ref mut feature) = self.astc_hdr {
+            info = info.push_next(feature);
+        }
+        if let Some(ref mut feature) = self.inline_uniform_block {
             info = info.push_next(feature);
         }
         if let Some((ref mut f16_i8_feature, ref mut _16bit_feature)) = self.shader_float16 {
@@ -282,6 +286,20 @@ impl PhysicalDeviceFeatures {
             } else {
                 None
             },
+            inline_uniform_block: if enabled_extensions
+                .contains(&vk::ExtInlineUniformBlockFn::name())
+            {
+                Some(
+                    vk::PhysicalDeviceInlineUniformBlockFeaturesEXT::builder()
+                        .inline_uniform_block(true)
+                        .descriptor_binding_inline_uniform_block_update_after_bind(
+                            uab_types.contains(super::UpdateAfterBindTypes::UNIFORM_BUFFER),
+                        )
+                        .build(),
+                )
+            } else {
+                None
+            },
             shader_float16: if requested_features.contains(wgt::Features::SHADER_FLOAT16) {
                 Some((
                     vk::PhysicalDeviceShaderFloat16Int8Features::builder()
@@ -316,7 +334,7 @@ impl PhysicalDeviceFeatures {
             | F::WRITE_TIMESTAMP_INSIDE_PASSES
             | F::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
             | F::CLEAR_TEXTURE
-            | F::LIVE_RESOURCE_BINDING;
+            | F::DIRECT_RESOURCE_BINDING;
         let mut dl_flags = Df::all();
 
         dl_flags.set(Df::CUBE_ARRAY_TEXTURES, self.core.image_cube_array != 0);
@@ -455,11 +473,16 @@ impl PhysicalDeviceFeatures {
             is_format_16bit_norm_supported(instance, phd),
         );
 
-        if let Some(ref astc_hdr) = self.astc_hdr {
+        if let Some(ref feature) = self.astc_hdr {
             features.set(
                 F::TEXTURE_COMPRESSION_ASTC_HDR,
-                astc_hdr.texture_compression_astc_hdr != 0,
+                feature.texture_compression_astc_hdr != 0,
             );
+        }
+
+        if let Some(ref feature) = self.inline_uniform_block {
+            //TODO: do we need to check `descriptor_binding_inline_uniform_block_update_after_bind`?
+            features.set(F::INLINE_UNIFORM_DATA, feature.inline_uniform_block != 0);
         }
 
         if let Some((ref f16_i8, ref bit16)) = self.shader_float16 {
@@ -614,6 +637,10 @@ impl PhysicalDeviceCapabilities {
 
         if requested_features.contains(wgt::Features::TEXTURE_COMPRESSION_ASTC_HDR) {
             extensions.push(vk::ExtTextureCompressionAstcHdrFn::name());
+        }
+
+        if requested_features.contains(wgt::Features::INLINE_UNIFORM_DATA) {
+            extensions.push(vk::ExtInlineUniformBlockFn::name());
         }
 
         if requested_features.contains(wgt::Features::SHADER_FLOAT16) {
@@ -856,6 +883,12 @@ impl super::InstanceShared {
                 let next = features
                     .astc_hdr
                     .insert(vk::PhysicalDeviceTextureCompressionASTCHDRFeaturesEXT::default());
+                builder = builder.push_next(next);
+            }
+            if capabilities.supports_extension(vk::ExtInlineUniformBlockFn::name()) {
+                let next = features
+                    .inline_uniform_block
+                    .insert(vk::PhysicalDeviceInlineUniformBlockFeaturesEXT::default());
                 builder = builder.push_next(next);
             }
             if capabilities.supports_extension(vk::KhrShaderFloat16Int8Fn::name())
@@ -1311,7 +1344,8 @@ impl super::Adapter {
             mem_allocator: Mutex::new(mem_allocator),
             desc_allocator: Mutex::new(desc_allocator),
             valid_ash_memory_types,
-            support_live_resource_binding: features.contains(wgt::Features::LIVE_RESOURCE_BINDING),
+            support_direct_resource_binding: features
+                .contains(wgt::Features::DIRECT_RESOURCE_BINDING),
             naga_options,
             #[cfg(feature = "renderdoc")]
             render_doc: Default::default(),

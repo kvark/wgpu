@@ -688,13 +688,16 @@ pub fn map_binding_type(ty: wgt::BindingType) -> vk::DescriptorType {
         wgt::BindingType::Buffer {
             ty,
             has_dynamic_offset,
-            ..
+            min_binding_size: _,
         } => match ty {
             wgt::BufferBindingType::Storage { .. } => match has_dynamic_offset {
                 true => vk::DescriptorType::STORAGE_BUFFER_DYNAMIC,
                 false => vk::DescriptorType::STORAGE_BUFFER,
             },
-            wgt::BufferBindingType::Uniform => match has_dynamic_offset {
+            wgt::BufferBindingType::Uniform { inline: true } => {
+                vk::DescriptorType::INLINE_UNIFORM_BLOCK_EXT
+            }
+            wgt::BufferBindingType::Uniform { inline: false } => match has_dynamic_offset {
                 true => vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
                 false => vk::DescriptorType::UNIFORM_BUFFER,
             },

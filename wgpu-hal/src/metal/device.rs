@@ -73,6 +73,17 @@ impl super::BindGroup {
                 }
                 match layout.ty {
                     wgt::BindingType::Buffer {
+                        ty: wgt::BufferBindingType::Uniform { inline: true },
+                        ..
+                    } => {
+                        bg.buffers.push(super::BufferResource::Inline {
+                            data: resources.inline_blocks[entry.resource_index as usize]
+                                .to_owned()
+                                .into_boxed_slice(),
+                        });
+                        counter.buffers += 1;
+                    }
+                    wgt::BindingType::Buffer {
                         ty,
                         has_dynamic_offset,
                         ..
@@ -87,9 +98,9 @@ impl super::BindGroup {
                                     wgt::BufferBindingType::Storage { .. } => {
                                         source.size.or(remaining_size)
                                     }
-                                    _ => None,
+                                    wgt::BufferBindingType::Uniform { .. } => None,
                                 };
-                                super::BufferResource {
+                                super::BufferResource::Allocated {
                                     ptr: source.buffer.as_raw(),
                                     offset: source.offset,
                                     dynamic_index: if has_dynamic_offset {
@@ -101,7 +112,7 @@ impl super::BindGroup {
                                     binding_location: layout.binding,
                                 }
                             }));
-                        counter.buffers += 1;
+                        counter.buffers += size;
                     }
                     wgt::BindingType::Sampler { .. } => {
                         let start = entry.resource_index as usize;

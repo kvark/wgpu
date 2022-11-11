@@ -645,7 +645,14 @@ bitflags::bitflags! {
         /// - All
         ///
         /// This is a native-only feature.
-        const LIVE_RESOURCE_BINDING = 1 << 42;
+        const DIRECT_RESOURCE_BINDING = 1 << 42;
+        /// Enables inlining uniform data into the bind groups.
+        ///
+        /// Supported Platforms:
+        /// - All
+        ///
+        /// This is a native-only feature.
+        const INLINE_UNIFORM_DATA = 1 << 43;
     }
 }
 
@@ -4477,7 +4484,7 @@ pub struct ImageDataLayout {
 ///
 /// Corresponds to [WebGPU `GPUBufferBindingType`](
 /// https://gpuweb.github.io/gpuweb/#enumdef-gpubufferbindingtype).
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "trace", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BufferBindingType {
@@ -4501,8 +4508,13 @@ pub enum BufferBindingType {
     ///     vec2 anotherUniform;
     /// };
     /// ```
-    #[default]
-    Uniform,
+    Uniform {
+        /// If `true`, the buffer data is provided directly
+        /// to the bind group creation.
+        ///
+        /// Requires [`Features::INLINE_UNIFORM_DATA`].
+        inline: bool,
+    },
     /// A storage buffer.
     ///
     /// Example WGSL syntax:
@@ -4537,6 +4549,12 @@ pub enum BufferBindingType {
         /// ```
         read_only: bool,
     },
+}
+
+impl Default for BufferBindingType {
+    fn default() -> Self {
+        Self::Uniform { inline: false }
+    }
 }
 
 /// Specific type of a sample in a texture binding.
