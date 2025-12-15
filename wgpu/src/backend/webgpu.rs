@@ -769,8 +769,8 @@ const FEATURES_MAPPING: [(wgt::Features, webgpu_sys::GpuFeatureName); 15] = [
         webgpu_sys::GpuFeatureName::DualSourceBlending,
     ),
     (
-        wgt::Features::CLIP_DISTANCES,
-        webgpu_sys::GpuFeatureName::ClipDistances,
+        wgt::Features::SUBGROUP,
+        webgpu_sys::GpuFeatureName::Subgroups,
     ),
 ];
 
@@ -1627,7 +1627,7 @@ impl dispatch::AdapterInterface for WebAdapter {
         )
         .expect("Setting Object properties should never fail.");
 
-        let mut required_features = FEATURES_MAPPING
+        let required_features = FEATURES_MAPPING
             .iter()
             .copied()
             .flat_map(|(flag, value)| {
@@ -1638,8 +1638,6 @@ impl dispatch::AdapterInterface for WebAdapter {
                 }
             })
             .collect::<js_sys::Array>();
-
-        required_features.push(&JsValue::from("subgroups"));
 
         mapped_desc.set_required_features(&required_features);
 

@@ -48,4 +48,5 @@ pub enum GpuFeatureName {
     Float32Blendable = "float32-blendable",
     ClipDistances = "clip-distances",
     DualSourceBlending = "dual-source-blending",
+    Subgroups = "subgroups",
 }
