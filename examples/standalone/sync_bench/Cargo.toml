@@ -1,0 +1,16 @@
+[package]
+name = "wgpu-sync-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+tracy = ["dep:tracy-client", "profiling/profile-with-tracy"]
+
+[dependencies]
+bytemuck.workspace = true
+pollster.workspace = true
+profiling.workspace = true
+tracy-client = { workspace = true, optional = true }
+wgpu.workspace = true
