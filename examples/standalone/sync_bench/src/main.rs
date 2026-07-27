@@ -215,6 +215,30 @@ struct ComputeBench {
     independent: bool,
 }
 
+struct ValidationReadback {
+    buffer: wgpu::Buffer,
+    total_size: u64,
+    stride: usize,
+    valid_size: usize,
+    count: usize,
+}
+
+impl ValidationReadback {
+    fn hash(&self, bytes: &[u8]) -> u64 {
+        assert_eq!(bytes.len(), self.total_size as usize);
+        let mut logical = Vec::with_capacity(self.valid_size * self.count);
+        for (index, item) in bytes.chunks_exact(self.stride).take(self.count).enumerate() {
+            let output = &item[..self.valid_size];
+            assert!(
+                output.iter().any(|&byte| byte != 0),
+                "validation output {index} contains only zero bytes"
+            );
+            logical.extend_from_slice(output);
+        }
+        fnv1a64(&logical)
+    }
+}
+
 /// Compiles a shader with the same runtime checks Blade's pipelines use.
 ///
 /// Blade hands naga `BoundsCheckPolicies::default()` -- which is `Unchecked`
@@ -369,26 +393,50 @@ impl ComputeBench {
         pass.dispatch_workgroups(self.element_count.div_ceil(COMPUTE_WORKGROUP_SIZE), 1, 1);
     }
 
-    fn validation_buffer(&self, device: &wgpu::Device) -> (wgpu::Buffer, u64) {
-        let readback_size = u64::from(self.element_count.min(1024)) * 4;
-        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+    fn validation_buffer(&self, device: &wgpu::Device, passes: usize) -> ValidationReadback {
+        let stride = u64::from(self.element_count.min(1024)) * 4;
+        let count = if self.independent { passes } else { 1 };
+        let total_size = stride * count as u64;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("sync-bench-compute-readback"),
-            size: readback_size,
+            size: total_size,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        (readback, readback_size)
+        ValidationReadback {
+            buffer,
+            total_size,
+            stride: stride as usize,
+            valid_size: stride as usize,
+            count,
+        }
     }
 
     fn encode_validation_copy(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        readback: &wgpu::Buffer,
-        readback_size: u64,
+        readback: &ValidationReadback,
         passes: usize,
     ) {
-        let output_index = if self.independent { passes } else { passes % 2 };
-        encoder.copy_buffer_to_buffer(&self.buffers[output_index], 0, readback, 0, readback_size);
+        if self.independent {
+            for output_index in 1..=passes {
+                encoder.copy_buffer_to_buffer(
+                    &self.buffers[output_index],
+                    0,
+                    &readback.buffer,
+                    (output_index - 1) as u64 * readback.stride as u64,
+                    readback.valid_size as u64,
+                );
+            }
+        } else {
+            encoder.copy_buffer_to_buffer(
+                &self.buffers[passes % 2],
+                0,
+                &readback.buffer,
+                0,
+                readback.valid_size as u64,
+            );
+        }
     }
 }
 
@@ -540,46 +588,59 @@ impl GraphicsBench {
         pass.draw(0..3, 0..1);
     }
 
-    fn validation_buffer(&self, device: &wgpu::Device) -> (wgpu::Buffer, u64) {
+    fn validation_buffer(&self, device: &wgpu::Device) -> ValidationReadback {
         let unpadded = self.width * 4;
         let bytes_per_row = unpadded.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
             * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        let count = if self.independent {
+            self.textures.len()
+        } else {
+            1
+        };
+        let total_size = u64::from(bytes_per_row) * count as u64;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("sync-bench-graphics-readback"),
-            size: u64::from(bytes_per_row),
+            size: total_size,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        (readback, u64::from(bytes_per_row))
+        ValidationReadback {
+            buffer,
+            total_size,
+            stride: bytes_per_row as usize,
+            valid_size: unpadded as usize,
+            count,
+        }
     }
 
     fn encode_validation_copy(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        readback: &wgpu::Buffer,
-        bytes_per_row: u64,
+        readback: &ValidationReadback,
     ) {
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.textures[0],
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: readback,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(bytes_per_row as u32),
-                    rows_per_image: Some(1),
+        for (index, texture) in self.textures[..readback.count].iter().enumerate() {
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
                 },
-            },
-            wgpu::Extent3d {
-                width: self.width,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-        );
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &readback.buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: index as u64 * readback.stride as u64,
+                        bytes_per_row: Some(readback.stride as u32),
+                        rows_per_image: Some(1),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: self.width,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
     }
 }
 
@@ -620,29 +681,21 @@ impl Bench {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("sync-bench-validation"),
         });
-        let (readback, size) = match *self {
+        let readback = match *self {
             Self::Compute(ref bench) => {
-                let (readback, size) = bench.validation_buffer(device);
-                bench.encode_validation_copy(&mut encoder, &readback, size, passes);
-                (readback, size)
+                let readback = bench.validation_buffer(device, passes);
+                bench.encode_validation_copy(&mut encoder, &readback, passes);
+                readback
             }
             Self::Graphics(ref bench) => {
-                let (readback, size) = bench.validation_buffer(device);
-                bench.encode_validation_copy(&mut encoder, &readback, size);
-                (readback, size)
+                let readback = bench.validation_buffer(device);
+                bench.encode_validation_copy(&mut encoder, &readback);
+                readback
             }
         };
         queue.submit([encoder.finish()]);
-        let bytes = read_buffer(device, &readback, size);
-        assert!(
-            bytes.iter().any(|&byte| byte != 0),
-            "validation output contains only zero bytes"
-        );
-        let hash_bytes = match *self {
-            Self::Compute(_) => bytes.as_slice(),
-            Self::Graphics(ref bench) => &bytes[..bench.width as usize * 4],
-        };
-        fnv1a64(hash_bytes)
+        let bytes = read_buffer(device, &readback.buffer, readback.total_size);
+        readback.hash(&bytes)
     }
 }
 
@@ -708,7 +761,7 @@ fn read_buffer(device: &wgpu::Device, buffer: &wgpu::Buffer, size: u64) -> Vec<u
 
 fn fnv1a64(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-        (hash ^ u64::from(*byte)).wrapping_mul(0x1000_0000_01b3)
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
     })
 }
 
@@ -1001,12 +1054,12 @@ fn main() {
     }
 
     let validation_hash = bench.validate(&device, &queue, config.passes);
-    println!("# validation_hash,fnv1a64:{validation_hash:016x}");
+    println!("# validation_hash,fnv1a64-standard:{validation_hash:016x}");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, Workload};
+    use super::{fnv1a64, Config, Workload};
 
     #[test]
     fn workload_names_match_blade() {
@@ -1020,5 +1073,11 @@ mod tests {
             assert_eq!(Workload::parse(name).unwrap().as_str(), name);
         }
         assert_eq!(Config::default().passes, 16);
+    }
+
+    #[test]
+    fn validation_hash_is_fnv1a64() {
+        // Published FNV-1a-64 test vector for the ASCII string "hello".
+        assert_eq!(fnv1a64(b"hello"), 0xa430_d846_80aa_bd0b);
     }
 }
