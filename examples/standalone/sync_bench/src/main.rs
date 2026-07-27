@@ -908,6 +908,11 @@ fn main() {
     println!("# driver_info,{}", csv_string(&adapter_info.driver_info));
     println!("# software_emulated,{software_emulated}");
     println!("# validation,{}", config.validation);
+    // Recorded so an analysis can tell a collection taken with wgpu's injected
+    // bounds, division and loop checks from one taken without them. They are
+    // worth tens of percent of GPU span on a fragment-bound workload, so the
+    // two are not comparable and must not be pooled.
+    println!("# shader_checks,{}", config.shader_checks);
     println!("# gpu_timing,{}", config.gpu_timing);
     println!(
         "# timestamp_period_ns,{}",
