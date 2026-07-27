@@ -58,6 +58,7 @@ struct Config {
     gpu_timing: bool,
     list_adapters: bool,
     capture: bool,
+    shader_checks: bool,
 }
 
 impl Default for Config {
@@ -76,6 +77,7 @@ impl Default for Config {
             gpu_timing: true,
             list_adapters: false,
             capture: false,
+            shader_checks: false,
         }
     }
 }
@@ -122,6 +124,7 @@ impl Config {
                 "--no-gpu-timing" => config.gpu_timing = false,
                 "--list-adapters" => config.list_adapters = true,
                 "--capture" => config.capture = true,
+                "--shader-checks" => config.shader_checks = true,
                 "--help" | "-h" => {
                     print_usage();
                     process::exit(0);
@@ -180,6 +183,8 @@ Options:
   --allow-software    permit a software adapter (correctness only)
   --no-gpu-timing     disable timestamp queries for CPU-only collection
   --list-adapters     list selectable adapters and exit
+  --shader-checks     keep wgpu's injected bounds, division and loop checks
+                      (off by default, to match Blade's shader compilation)
   --capture           wrap one measured iteration in a RenderDoc capture
                       (requires librenderdoc.so to be loaded, e.g. via
                       LD_PRELOAD)
@@ -210,9 +215,36 @@ struct ComputeBench {
     independent: bool,
 }
 
+/// Compiles a shader with the same runtime checks Blade's pipelines use.
+///
+/// Blade hands naga `BoundsCheckPolicies::default()` -- which is `Unchecked`
+/// throughout -- and `emit_int_div_checks: false`, so its SPIR-V carries no
+/// injected checks at all. `create_shader_module` would give the wgpu side
+/// clamped indices, division guards, and a bounded-loop counter that is loaded,
+/// compared and stored on every iteration of the mixing loop both shaders run.
+/// That is a shader-code difference, not a synchronization difference, and it
+/// would land in the device-time comparison as if it were one.
+///
+/// `--shader-checks` restores wgpu's defaults so the cost can be measured.
+fn create_shader(
+    device: &wgpu::Device,
+    config: &Config,
+    descriptor: wgpu::ShaderModuleDescriptor<'_>,
+) -> wgpu::ShaderModule {
+    if config.shader_checks {
+        device.create_shader_module(descriptor)
+    } else {
+        // SAFETY: both shaders index only in-bounds, divide by nothing, and
+        // loop a bounded number of times set by a uniform the harness writes.
+        unsafe {
+            device.create_shader_module_trusted(descriptor, wgpu::ShaderRuntimeChecks::unchecked())
+        }
+    }
+}
+
 impl ComputeBench {
     fn new(device: &wgpu::Device, config: &Config) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("compute.wgsl"));
+        let shader = create_shader(device, config, wgpu::include_wgsl!("compute.wgsl"));
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sync-bench-compute-bind-group-layout"),
             entries: &[
@@ -380,7 +412,7 @@ struct GraphicsBench {
 
 impl GraphicsBench {
     fn new(device: &wgpu::Device, config: &Config) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("graphics.wgsl"));
+        let shader = create_shader(device, config, wgpu::include_wgsl!("graphics.wgsl"));
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("sync-bench-graphics-pipeline-layout"),
             bind_group_layouts: &[],
