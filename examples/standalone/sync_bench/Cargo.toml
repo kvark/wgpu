@@ -1,0 +1,24 @@
+[package]
+name = "wgpu-sync-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+tracy = ["dep:tracy-client", "profiling/profile-with-tracy"]
+
+[dependencies]
+bytemuck.workspace = true
+pollster.workspace = true
+profiling.workspace = true
+tracy-client = { workspace = true, optional = true }
+wgpu.workspace = true
+
+# Lets `--capture` delimit a RenderDoc capture from inside the process. This
+# benchmark is headless, so there is no swapchain present for RenderDoc to
+# trigger on. Matches the flag on Blade's sync-bench so the two command streams
+# can be compared.
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+renderdoc = "0.12"
+
