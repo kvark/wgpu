@@ -8,6 +8,8 @@
 #[cfg(std)]
 mod belt;
 mod device;
+/// Host record/submit counters shared by every dispatch backend.
+pub mod dispatch_stats;
 mod encoder;
 mod init;
 #[cfg(webgpu)]

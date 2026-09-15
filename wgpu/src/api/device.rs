@@ -102,6 +102,8 @@ impl Device {
     ///
     /// When running on WebGPU, this is a no-op. `Device`s are automatically polled.
     pub fn poll(&self, poll_type: PollType) -> Result<crate::PollStatus, crate::PollError> {
+        let _wait = matches!(poll_type, PollType::Wait { .. })
+            .then(crate::util::dispatch_stats::wait_scope);
         self.inner.poll(poll_type.map_index(|s| s.index))
     }
 

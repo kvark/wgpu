@@ -59,6 +59,7 @@ impl CommandEncoder {
     /// Finishes recording and returns a [`CommandBuffer`] that can be submitted for execution.
     pub fn finish(self) -> CommandBuffer {
         let Self { mut inner, actions } = self;
+        let _record = crate::util::dispatch_stats::record_scope();
         let buffer = inner.finish();
         CommandBuffer { buffer, actions }
     }
@@ -77,6 +78,7 @@ impl CommandEncoder {
         &'encoder mut self,
         desc: &RenderPassDescriptor<'_>,
     ) -> RenderPass<'encoder> {
+        crate::util::dispatch_stats::note_render_pass();
         let rpass = self.inner.begin_render_pass(desc);
         RenderPass {
             inner: rpass,
@@ -99,6 +101,7 @@ impl CommandEncoder {
         &'encoder mut self,
         desc: &ComputePassDescriptor<'_>,
     ) -> ComputePass<'encoder> {
+        crate::util::dispatch_stats::note_compute_pass();
         let cpass = self.inner.begin_compute_pass(desc);
         ComputePass {
             inner: cpass,

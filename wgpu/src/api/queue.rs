@@ -289,7 +289,10 @@ impl Queue {
             actions.append(&mut comb.actions.lock());
             comb.buffer
         });
-        let index = self.inner.submit(&mut command_buffers);
+        let index = {
+            let _submit = crate::util::dispatch_stats::submit_scope();
+            self.inner.submit(&mut command_buffers)
+        };
 
         // Execute all deferred actions after submit.
         actions.execute(&self.inner);
