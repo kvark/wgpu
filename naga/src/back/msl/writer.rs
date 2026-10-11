@@ -114,7 +114,7 @@ const fn scalar_is_int(scalar: crate::Scalar) -> bool {
     use crate::ScalarKind::*;
     match scalar.kind {
         Sint | Uint | AbstractInt | Bool => true,
-        Float | AbstractFloat => false,
+        Float | BFloat | AbstractFloat => false,
     }
 }
 
@@ -1931,6 +1931,11 @@ impl<W: Write> Writer<W> {
 
     fn put_literal(&mut self, literal: crate::Literal) -> BackendResult {
         match literal {
+            crate::Literal::BF16(_) => {
+                return Err(Error::CapabilityNotSupported(
+                    valid::Capabilities::SHADER_BFLOAT16,
+                ));
+            }
             crate::Literal::F64(_) => {
                 return Err(Error::CapabilityNotSupported(valid::Capabilities::FLOAT64))
             }
@@ -4565,6 +4570,11 @@ impl<W: Write> Writer<W> {
         options: &Options,
         pipeline_options: &PipelineOptions,
     ) -> Result<TranslationInfo, Error> {
+        if back::uses_bfloat16(module) {
+            return Err(Error::CapabilityNotSupported(
+                valid::Capabilities::SHADER_BFLOAT16,
+            ));
+        }
         self.emit_int_div_checks = options.emit_int_div_checks;
         self.names.clear();
         self.namer.reset(
