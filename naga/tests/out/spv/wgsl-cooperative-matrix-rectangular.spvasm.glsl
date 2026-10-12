@@ -31,9 +31,9 @@ void main()
     coopMatLoad(_36, _14._m0, 0u, 8u, gl_CooperativeMatrixLayoutColumnMajor);
     coopmat<float16_t, gl_ScopeSubgroup, 16u, 16u, gl_MatrixUseB> _39;
     coopMatLoad(_39, _14._m0, 0u, 16u, gl_CooperativeMatrixLayoutColumnMajor);
-    coopmat<float, gl_ScopeSubgroup, 8u, 16u, gl_MatrixUseAccumulator> _42;
-    coopMatLoad(_42, _17._m0, 0u, 8u, gl_CooperativeMatrixLayoutColumnMajor);
-    _28 = _42;
+    coopmat<float, gl_ScopeSubgroup, 8u, 16u, gl_MatrixUseAccumulator> _44;
+    coopMatLoad(_44, _17._m0, 0u, 8u, gl_CooperativeMatrixLayoutColumnMajor);
+    _28 = _44;
     _28 = coopMatMulAdd(_36, _39, _28, 0);
     coopMatStore(_28, _17._m0, 0u, 8u, gl_CooperativeMatrixLayoutColumnMajor);
 }
@@ -67,15 +67,15 @@ layout(set = 0, binding = 1, std430) buffer _18_17
 
 void main()
 {
-    coopmat<float, gl_ScopeSubgroup, 16u, 8u, gl_MatrixUseAccumulator> _51 = coopmat<float, gl_ScopeSubgroup, 16u, 8u, gl_MatrixUseAccumulator>(0.0);
-    coopmat<float16_t, gl_ScopeSubgroup, 16u, 16u, gl_MatrixUseA> _57;
-    coopMatLoad(_57, _14._m0, 0u, 16u, gl_CooperativeMatrixLayoutColumnMajor);
-    coopmat<float16_t, gl_ScopeSubgroup, 16u, 8u, gl_MatrixUseB> _60;
-    coopMatLoad(_60, _14._m0, 0u, 16u, gl_CooperativeMatrixLayoutColumnMajor);
-    coopmat<float, gl_ScopeSubgroup, 16u, 8u, gl_MatrixUseAccumulator> _62;
-    coopMatLoad(_62, _17._m0, 0u, 16u, gl_CooperativeMatrixLayoutColumnMajor);
-    _51 = _62;
-    _51 = coopMatMulAdd(_57, _60, _51, 0);
-    coopMatStore(_51, _17._m0, 0u, 16u, gl_CooperativeMatrixLayoutColumnMajor);
+    coopmat<float, gl_ScopeSubgroup, 16u, 8u, gl_MatrixUseAccumulator> _53 = coopmat<float, gl_ScopeSubgroup, 16u, 8u, gl_MatrixUseAccumulator>(0.0);
+    coopmat<float16_t, gl_ScopeSubgroup, 16u, 16u, gl_MatrixUseA> _59;
+    coopMatLoad(_59, _14._m0, 0u, 16u, gl_CooperativeMatrixLayoutColumnMajor);
+    coopmat<float16_t, gl_ScopeSubgroup, 16u, 8u, gl_MatrixUseB> _62;
+    coopMatLoad(_62, _14._m0, 0u, 16u, gl_CooperativeMatrixLayoutColumnMajor);
+    coopmat<float, gl_ScopeSubgroup, 16u, 8u, gl_MatrixUseAccumulator> _64;
+    coopMatLoad(_64, _17._m0, 0u, 16u, gl_CooperativeMatrixLayoutColumnMajor);
+    _53 = _64;
+    _53 = coopMatMulAdd(_59, _62, _53, 0);
+    coopMatStore(_53, _17._m0, 0u, 16u, gl_CooperativeMatrixLayoutColumnMajor);
 }
 
