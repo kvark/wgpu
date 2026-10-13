@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.3
 ; Generator: rspirv
-; Bound: 61
+; Bound: 60
 OpCapability Shader
 OpCapability VulkanMemoryModel
 OpExtension "SPV_KHR_vulkan_memory_model"
@@ -63,10 +63,9 @@ OpDecorate %35 BuiltIn LocalInvocationIndex
 %43 = OpConstant  %3  264
 %45 = OpTypePointer StorageBuffer %4
 %49 = OpConstant  %28  5
-%51 = OpConstant  %3  72
+%51 = OpConstant  %3  24648
 %57 = OpTypeVector %3 4
 %59 = OpConstant  %3  5
-%60 = OpConstant  %3  24648
 %20 = OpFunction  %2  None %21
 %19 = OpLabel
 %24 = OpAccessChain  %22  %11 %23
@@ -102,6 +101,6 @@ OpAtomicStore %24 %49 %23 %27
 %56 = OpAtomicIAdd  %3  %24 %49 %23 %27
 %58 = OpImageRead  %57  %25 %31 MakeTexelVisible|NonPrivateTexel %34
 OpImageWrite %26 %31 %58 MakeTexelAvailable|NonPrivateTexel %34
-OpMemoryBarrier %59 %60
+OpMemoryBarrier %59 %51
 OpReturn
 OpFunctionEnd

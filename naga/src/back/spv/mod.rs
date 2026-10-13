@@ -1207,9 +1207,10 @@ pub struct Options<'a> {
     /// whenever the module requires a capability that depends on it (for
     /// example cooperative matrices). Under the Vulkan memory model, the
     /// writer annotates storage and workgroup pointer accesses with
-    /// `NonPrivatePointer`, storage image accesses with `NonPrivateTexel`, and
-    /// both with the appropriate availability or visibility scope. Fence-only
-    /// barriers use `MakeAvailable`/`MakeVisible`; the `Coherent` and
+    /// `NonPrivatePointer` and storage image accesses with `NonPrivateTexel`.
+    /// Ordinary storage buffer accesses defer availability and visibility to
+    /// barriers using `MakeAvailable`/`MakeVisible`. Workgroup and image
+    /// accesses retain per-access availability/visibility; the `Coherent` and
     /// `Volatile` decorations, which the model forbids, are replaced by
     /// per-access operands.
     ///

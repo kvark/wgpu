@@ -38,8 +38,7 @@ void main()
     _7._m0[0u] = _17;
     groupMemoryBarrier();
     barrier();
-    uint _53 = _9._m0[0u];
-    _9._m0[1u] = _53;
+    _9._m0[1u] = _9._m0[0u];
     atomicExchange(_11._m0, 1u);
     uint _55 = atomicAdd(_11._m0, 0u);
     uint _56 = atomicAdd(_11._m0, 1u);
