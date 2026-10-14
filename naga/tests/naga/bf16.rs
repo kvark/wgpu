@@ -215,7 +215,7 @@ fn spirv_1_0_declares_16bit_storage() {
 
 #[cfg(msl_out)]
 #[test]
-fn msl_rejects_intermediate_bf16() {
+fn msl_bf16_requires_3_1() {
     let source = r#"
 enable wgpu_bfloat16;
 @group(0) @binding(0) var<storage> src: array<f32>;
@@ -225,10 +225,38 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     dst[id.x] = f32(bf16(src[id.x]));
 }
 "#;
-    let (module, info) = validate(source, Capabilities::all());
-    let result =
-        naga::back::msl::write_string(&module, &info, &Default::default(), &Default::default());
-    assert!(result.is_err());
+    let product = PRODUCT
+        .replace("16x16", "8x8")
+        .replace("16u", "8u")
+        .replace("256", "64");
+    for source in [source, CONVERT, TEMPORARIES, &product] {
+        let (module, info) = validate(source, Capabilities::all());
+        for version in [(2, 4), (3, 0), (3, 1)] {
+            let options = naga::back::msl::Options {
+                lang_version: version,
+                ..Default::default()
+            };
+            let result =
+                naga::back::msl::write_string(&module, &info, &options, &Default::default());
+            if version < (3, 1) {
+                assert!(matches!(
+                    result,
+                    Err(naga::back::msl::Error::CapabilityNotSupported(
+                        Capabilities::SHADER_BFLOAT16
+                    ))
+                ));
+            } else {
+                let (msl, info) = result.unwrap();
+                assert!(info.entry_point_names.iter().all(Result::is_ok));
+                assert!(msl.contains("bfloat"));
+                if source == product {
+                    assert!(msl.contains("simdgroup_bfloat8x8"));
+                    assert!(msl.contains("simdgroup_float8x8"));
+                    assert!(msl.contains("simdgroup_multiply_accumulate"));
+                }
+            }
+        }
+    }
 }
 
 #[test]

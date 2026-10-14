@@ -570,6 +570,10 @@ impl crate::Scalar {
                 width: 2,
             } => "half",
             Self {
+                kind: Sk::BFloat,
+                width: 2,
+            } => "bfloat",
+            Self {
                 kind: Sk::Sint,
                 width: 2,
             } => "short",
@@ -1931,10 +1935,10 @@ impl<W: Write> Writer<W> {
 
     fn put_literal(&mut self, literal: crate::Literal) -> BackendResult {
         match literal {
-            crate::Literal::BF16(_) => {
-                return Err(Error::CapabilityNotSupported(
-                    valid::Capabilities::SHADER_BFLOAT16,
-                ));
+            crate::Literal::BF16(value) => {
+                write!(self.out, "bfloat(")?;
+                self.put_literal(crate::Literal::F32(value.to_f32()))?;
+                write!(self.out, ")")?;
             }
             crate::Literal::F64(_) => {
                 return Err(Error::CapabilityNotSupported(valid::Capabilities::FLOAT64))
@@ -4570,7 +4574,7 @@ impl<W: Write> Writer<W> {
         options: &Options,
         pipeline_options: &PipelineOptions,
     ) -> Result<TranslationInfo, Error> {
-        if back::uses_bfloat16(module) {
+        if options.lang_version < (3, 1) && back::uses_bfloat16(module) {
             return Err(Error::CapabilityNotSupported(
                 valid::Capabilities::SHADER_BFLOAT16,
             ));

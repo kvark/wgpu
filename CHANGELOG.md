@@ -42,6 +42,12 @@ Bottom level categories:
 
 ## Unreleased
 
+### Added/New Features
+
+#### Naga
+
+- Support BF16 storage, conversion and cooperative matrix operands in MSL 3.1 and later.
+
 ### Major changes
 
 #### `TEXTURE_COMPONENT_SWIZZLE` feature and `swizzle` field in `TextureViewDescriptor`
