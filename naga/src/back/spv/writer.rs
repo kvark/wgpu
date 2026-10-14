@@ -3106,8 +3106,8 @@ impl Writer {
     /// memory carry `NonPrivatePointer`. Ordinary storage accesses rely on
     /// barriers for availability/visibility: Naga's relaxed atomics cannot
     /// synchronize non-atomic accesses on their own. Workgroup accesses and
-    /// explicitly decorated globals retain per-access propagation, with
-    /// QueueFamily scope for `@coherent` and Workgroup scope otherwise.
+    /// accesses traced to explicitly decorated globals retain per-access
+    /// propagation: QueueFamily scope for `@coherent`, Workgroup otherwise.
     /// `@volatile` also adds the `Volatile` operand.
     pub(super) fn access_memory_operands(
         &mut self,

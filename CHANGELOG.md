@@ -233,7 +233,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 - Reject unsigned integer arguments to WGSL `sign()` during Naga validation instead of allowing them to reach and panic in the SPIR-V backend. By @notferdon in [#10451](https://github.com/gfx-rs/wgpu/pull/10451).
 - Stop emitting explicit layout decorations on SPIR-V types used by workgroup and task-payload variables, fixing `VUID-StandaloneSpirv-None-10684`. Types also used by uniform/storage buffers get a separate undecorated declaration on SPIR-V 1.4+. By @kvark in [#9295](https://github.com/gfx-rs/wgpu/pull/9295).
-- Emit spec-compliant SPIR-V under the Vulkan memory model: storage and workgroup pointer accesses carry `NonPrivatePointer`, storage texture accesses carry `NonPrivateTexel`, both use availability/visibility scopes, fence semantics include `MakeAvailable`/`MakeVisible`, and atomics and storage fences use `QueueFamily` scope instead of `Device`. The `Coherent`/`Volatile` decorations (forbidden by the model) are replaced by per-access memory operands. The model is declared whenever the module requires it (cooperative matrices) or when `spv::Options::use_vulkan_memory_model` requests it. Accesses to storage globals that no entry point writes stay private. By @kvark in [#10016](https://github.com/gfx-rs/wgpu/issues/10016).
+- Emit SPIR-V with explicit Vulkan memory model semantics: storage and workgroup pointer accesses carry `NonPrivatePointer`, and storage texture accesses carry `NonPrivateTexel`. Ordinary storage-buffer accesses defer availability/visibility to storage barriers with `MakeAvailable`/`MakeVisible`, avoiding per-access fences; workgroup and texture accesses retain per-access scopes. Fence semantics also include `MakeAvailable`/`MakeVisible`, and atomics and storage fences use `QueueFamily` scope instead of `Device`. The `Coherent`/`Volatile` decorations (forbidden by the model) are replaced by per-access memory operands when accesses can be traced to their decorated globals; decorations are not tracked through pointer function arguments. The model is declared whenever the module requires it (cooperative matrices) or when `spv::Options::use_vulkan_memory_model` requests it. Accesses to storage globals that no entry point writes stay private. By @kvark in [#10016](https://github.com/gfx-rs/wgpu/issues/10016) and [kvark/wgpu#2](https://github.com/kvark/wgpu/pull/2).
 - Fix panics when shader `var<immediate>` size is larger than 256 bytes. By @beicause in [#9725](https://github.com/gfx-rs/wgpu/pull/9725).
 - Fix a panic in the SPIR-V frontend when a subgroup collective operation (e.g. `OpGroupNonUniformUMin`) or `OpGroupNonUniformBallot` used an argument whose value needed to be spilled to a temporary variable, such as when the argument was computed inside a loop. By @nazar-pc in [#9957](https://github.com/gfx-rs/wgpu/issues/9957).
 - Lower `@builtin(instance_index)` in `@any_hit` and `@closest_hit` entry points to SPIR-V's `InstanceId` rather than `InstanceIndex`, which Vulkan only permits in the vertex stage. By @JMS55 in [10154](https://github.com/gfx-rs/wgpu/pull/10154).
@@ -313,10 +313,6 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 ### Performance
 
 - Added explicit `Send` and `Sync` implementations to key `wgpu` types so that the compiler can do less work checking those bounds. If you previously added a `#![recursion_limit = ...]` attribute to your crate due to overflow errors involving `wgpu` types, you may now be able to remove it. By @kpreid in [#10177](https://github.com/gfx-rs/wgpu/pull/10177).
-
-#### naga
-
-- Avoid per-access storage-buffer fences under the Vulkan memory model by performing availability and visibility at storage barriers. Explicitly coherent and volatile accesses retain per-access propagation.
 
 ### Documentation
 
