@@ -3069,7 +3069,14 @@ impl Writer {
         } else {
             spirv::Scope::Workgroup
         };
-        let semantics = Self::barrier_memory_semantics(flags);
+        let mut semantics = Self::barrier_memory_semantics(flags);
+        if self.memory_model == spirv::MemoryModel::Vulkan
+            && flags.contains(crate::Barrier::STORAGE)
+        {
+            // Ordinary storage accesses defer propagation to synchronization.
+            semantics |=
+                spirv::MemorySemantics::MAKE_AVAILABLE | spirv::MemorySemantics::MAKE_VISIBLE;
+        }
         let exec_scope_id = if flags.contains(crate::Barrier::SUB_GROUP) {
             self.get_index_constant(spirv::Scope::Subgroup as u32)
         } else {
@@ -3096,13 +3103,12 @@ impl Writer {
     /// Memory operands for a non-atomic access, if any are needed.
     ///
     /// Under the Vulkan memory model, accesses to storage and workgroup
-    /// memory carry `NonPrivatePointer` plus a visibility (loads) or
-    /// availability (stores) scope. Globals decorated `@coherent` use
-    /// QueueFamily scope, making every access coherent device-wide;
-    /// everything else uses Workgroup scope, with cross-workgroup
-    /// propagation provided by barriers. Globals decorated `@volatile` add
-    /// the `Volatile` operand, standing in for the decoration the model
-    /// forbids.
+    /// memory carry `NonPrivatePointer`. Ordinary storage accesses rely on
+    /// barriers for availability/visibility: Naga's relaxed atomics cannot
+    /// synchronize non-atomic accesses on their own. Workgroup accesses and
+    /// accesses traced to explicitly decorated globals retain per-access
+    /// propagation: QueueFamily scope for `@coherent`, Workgroup otherwise.
+    /// `@volatile` also adds the `Volatile` operand.
     pub(super) fn access_memory_operands(
         &mut self,
         space: crate::AddressSpace,
@@ -3117,6 +3123,12 @@ impl Writer {
             _ => return None,
         }
         let mut access = spirv::MemoryAccess::NON_PRIVATE_POINTER;
+        if matches!(space, crate::AddressSpace::Storage { .. }) && decorations.is_empty() {
+            return Some(super::MemoryOperands {
+                access,
+                scope_id: None,
+            });
+        }
         access |= match kind {
             AccessKind::Load => spirv::MemoryAccess::MAKE_POINTER_VISIBLE,
             AccessKind::Store => spirv::MemoryAccess::MAKE_POINTER_AVAILABLE,

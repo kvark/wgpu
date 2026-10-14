@@ -984,12 +984,13 @@ enum AccessKind {
 /// Memory operands attached to a load or store instruction.
 ///
 /// Under the Vulkan memory model, non-atomic accesses to memory that other
-/// invocations can observe carry `NonPrivatePointer` together with a
-/// `MakePointerAvailable` (stores) or `MakePointerVisible` (loads) scope.
+/// invocations can observe carry `NonPrivatePointer`. A `MakePointerAvailable`
+/// (stores) or `MakePointerVisible` (loads) scope is only present for accesses
+/// with per-access propagation; ordinary storage accesses rely on barriers.
 #[derive(Clone, Copy, Debug)]
 struct MemoryOperands {
     access: spirv::MemoryAccess,
-    /// Scope id operand required by `MakePointerAvailable`/`MakePointerVisible`.
+    /// Scope id operand when `MakePointerAvailable`/`MakePointerVisible` is present.
     scope_id: Option<Word>,
 }
 
@@ -1207,11 +1208,13 @@ pub struct Options<'a> {
     /// whenever the module requires a capability that depends on it (for
     /// example cooperative matrices). Under the Vulkan memory model, the
     /// writer annotates storage and workgroup pointer accesses with
-    /// `NonPrivatePointer`, storage image accesses with `NonPrivateTexel`, and
-    /// both with the appropriate availability or visibility scope. Fence-only
-    /// barriers use `MakeAvailable`/`MakeVisible`; the `Coherent` and
-    /// `Volatile` decorations, which the model forbids, are replaced by
-    /// per-access operands.
+    /// `NonPrivatePointer` and storage image accesses with `NonPrivateTexel`.
+    /// Ordinary storage buffer accesses defer availability and visibility to
+    /// barriers using `MakeAvailable`/`MakeVisible`. Workgroup and image
+    /// accesses retain per-access availability/visibility. Accesses traced to
+    /// globals with `Coherent` or `Volatile` decorations use per-access operands
+    /// in place of those decorations, which the model forbids. Decorations are
+    /// not tracked through pointer function arguments.
     ///
     /// Requires the device to enable the `vulkanMemoryModel` feature.
     pub use_vulkan_memory_model: bool,
