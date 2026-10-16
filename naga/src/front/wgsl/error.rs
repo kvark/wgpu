@@ -365,6 +365,8 @@ pub(crate) enum Error<'a> {
     UnknownAttribute(Span),
     UnknownBuiltin(Span),
     UnknownAccess(Span),
+    UnknownCooperativeScope(Span),
+    UnknownCooperativeRole(Span),
     UnknownIdent(Span, &'a str),
     UnknownScalarType(Span),
     UnknownStorageFormat(Span),
@@ -888,6 +890,8 @@ impl<'a> Error<'a> {
                 | Error::UnknownAttribute(span)
                 | Error::UnknownBuiltin(span)
                 | Error::UnknownAccess(span)
+                | Error::UnknownCooperativeScope(span)
+                | Error::UnknownCooperativeRole(span)
                 | Error::UnknownStorageFormat(span)
                 | Error::UnknownConservativeDepth(span)
                 | Error::TypeNotConstructible(span)
@@ -944,6 +948,8 @@ impl<'a> Error<'a> {
                         "`",
                         "unknown builtin"
                     ),
+                    Error::UnknownCooperativeScope(_) => ("unknown cooperative scope: `", "`", "unknown cooperative scope"),
+                    Error::UnknownCooperativeRole(_) => ("unknown cooperative role: `", "`", "unknown cooperative role"),
                     Error::UnknownAccess(_) => (
                         "unknown access: `",
                         "`",

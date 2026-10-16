@@ -119,11 +119,19 @@ fn storage_conversion_and_cooperative_product() {
 }
 
 #[test]
+fn bfloat16_capability_covers_storage_and_cooperative_operands() {
+    let caps = Capabilities::SHADER_BFLOAT16 | Capabilities::COOPERATIVE_MATRIX;
+    validate(CONVERT, caps);
+    validate(PRODUCT, caps);
+    validate(TEMPORARIES, caps);
+}
+
+#[test]
 fn capabilities_and_unsupported_operations_are_rejected() {
     assert!(naga::front::wgsl::parse_str(&CONVERT.replace("enable wgpu_bfloat16;", "")).is_err());
     for (source, missing) in [
         (CONVERT, Capabilities::SHADER_BFLOAT16),
-        (PRODUCT, Capabilities::COOPERATIVE_MATRIX_BFLOAT16),
+        (PRODUCT, Capabilities::SHADER_BFLOAT16),
     ] {
         let module = naga::front::wgsl::parse_str(source).unwrap();
         assert!(

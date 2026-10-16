@@ -148,11 +148,13 @@ impl Clone for TypeResolution {
                     rows,
                     scalar,
                     role,
+                    scope,
                 } => Ti::CooperativeMatrix {
                     columns,
                     rows,
                     scalar,
                     role,
+                    scope,
                 },
                 Ti::Pointer { base, space } => Ti::Pointer { base, space },
                 Ti::ValuePointer {
@@ -605,6 +607,7 @@ impl<'a> ResolveContext<'a> {
                                 rows,
                                 scalar,
                                 role,
+                                scope,
                             },
                             &Ti::CooperativeMatrix { columns, .. },
                         ) => TypeResolution::Value(Ti::CooperativeMatrix {
@@ -612,6 +615,7 @@ impl<'a> ResolveContext<'a> {
                             rows,
                             scalar,
                             role,
+                            scope,
                         }),
                         (tl, tr) => {
                             return Err(ResolveError::IncompatibleOperands(format!(
@@ -806,6 +810,7 @@ impl<'a> ResolveContext<'a> {
                 columns,
                 rows,
                 role,
+                scope,
                 ref data,
             } => {
                 let scalar = past(data.pointer)?
@@ -818,6 +823,7 @@ impl<'a> ResolveContext<'a> {
                     rows,
                     scalar,
                     role,
+                    scope,
                 })
             }
             crate::Expression::CooperativeMultiplyAdd { a: _, b: _, c } => past(c)?.clone(),

@@ -508,7 +508,40 @@ impl super::ImageClass {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct CooperativeMatrixUsage {
+    pub any: bool,
+    pub workgroup: bool,
+}
+
 impl crate::Module {
+    pub(crate) fn cooperative_matrix_usage(&self) -> CooperativeMatrixUsage {
+        let mut usage = CooperativeMatrixUsage::default();
+        for (_, ty) in self.types.iter() {
+            if let crate::TypeInner::CooperativeMatrix { scope, .. } = ty.inner {
+                usage.any = true;
+                usage.workgroup |= scope == crate::CooperativeScope::Workgroup;
+            }
+        }
+        for (_, expression) in self
+            .functions
+            .iter()
+            .map(|(_, f)| f)
+            .chain(self.entry_points.iter().map(|ep| &ep.function))
+            .flat_map(|f| f.expressions.iter())
+        {
+            match *expression {
+                crate::Expression::CooperativeLoad { scope, .. } => {
+                    usage.any = true;
+                    usage.workgroup |= scope == crate::CooperativeScope::Workgroup;
+                }
+                crate::Expression::CooperativeMultiplyAdd { .. } => usage.any = true,
+                _ => {}
+            }
+        }
+        usage
+    }
+
     pub const fn to_ctx(&self) -> GlobalCtx<'_> {
         GlobalCtx {
             types: &self.types,

@@ -542,15 +542,15 @@ impl From<VectorSize> for u32 {
     }
 }
 
-/// Number of components in a cooperative vector.
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+/// Invocations participating in a cooperative matrix operation.
+#[derive(Clone, Copy, Debug, Default, Hash, Eq, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "serialize", derive(Serialize))]
 #[cfg_attr(feature = "deserialize", derive(Deserialize))]
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
-pub enum CooperativeSize {
-    Eight = 8,
-    Sixteen = 16,
+pub enum CooperativeScope {
+    #[default]
+    Subgroup,
+    Workgroup,
 }
 
 /// Primitive type for a scalar.
@@ -864,10 +864,12 @@ pub enum TypeInner {
     /// Matrix that is cooperatively processed by all the threads
     /// in an opaque mapping.
     CooperativeMatrix {
-        columns: CooperativeSize,
-        rows: CooperativeSize,
+        columns: u32,
+        rows: u32,
         scalar: Scalar,
         role: CooperativeRole,
+        #[cfg_attr(feature = "deserialize", serde(default))]
+        scope: CooperativeScope,
     },
     /// Atomic scalar.
     Atomic(Scalar),
@@ -1926,9 +1928,11 @@ pub enum Expression {
 
     /// Load a cooperative primitive from memory.
     CooperativeLoad {
-        columns: CooperativeSize,
-        rows: CooperativeSize,
+        columns: u32,
+        rows: u32,
         role: CooperativeRole,
+        #[cfg_attr(feature = "deserialize", serde(default))]
+        scope: CooperativeScope,
         data: CooperativeData,
     },
     /// Compute `a * b + c`

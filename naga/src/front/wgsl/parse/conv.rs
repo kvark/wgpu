@@ -84,7 +84,7 @@ pub fn map_cooperative_role(word: &str, span: Span) -> Result<'_, crate::Coopera
         "A" => Ok(crate::CooperativeRole::A),
         "B" => Ok(crate::CooperativeRole::B),
         "C" => Ok(crate::CooperativeRole::C),
-        _ => Err(Box::new(Error::UnknownAccess(span))),
+        _ => Err(Box::new(Error::UnknownCooperativeRole(span))),
     }
 }
 
@@ -423,8 +423,8 @@ pub enum TypeGenerator {
     AccelerationStructure,
     RayQuery,
     CooperativeMatrix {
-        columns: crate::CooperativeSize,
-        rows: crate::CooperativeSize,
+        columns: u32,
+        rows: u32,
     },
 }
 
@@ -559,23 +559,19 @@ pub fn map_predeclared_type(
         "acceleration_structure" => TypeGenerator::AccelerationStructure.into(),
         // ray query
         "ray_query" => TypeGenerator::RayQuery.into(),
-        // cooperative matrix, named `coop_mat{columns}x{rows}` like WGSL's `mat{c}x{r}`
-        "coop_mat8x8" => TypeGenerator::CooperativeMatrix {
-            columns: crate::CooperativeSize::Eight,
-            rows: crate::CooperativeSize::Eight,
-        }.into(),
-        "coop_mat8x16" => TypeGenerator::CooperativeMatrix {
-            columns: crate::CooperativeSize::Eight,
-            rows: crate::CooperativeSize::Sixteen,
-        }.into(),
-        "coop_mat16x8" => TypeGenerator::CooperativeMatrix {
-            columns: crate::CooperativeSize::Sixteen,
-            rows: crate::CooperativeSize::Eight,
-        }.into(),
-        "coop_mat16x16" => TypeGenerator::CooperativeMatrix {
-            columns: crate::CooperativeSize::Sixteen,
-            rows: crate::CooperativeSize::Sixteen,
-        }.into(),
+        // Matrix names use columns × rows, matching ordinary WGSL matrices.
+        name if name.starts_with("coop_mat") => {
+            let Some((columns, rows)) = name[8..].split_once('x') else {
+                return Ok(None);
+            };
+            let (Ok(columns), Ok(rows)) = (columns.parse::<u32>(), rows.parse::<u32>()) else {
+                return Ok(None);
+            };
+            if columns == 0 || rows == 0 {
+                return Ok(None);
+            }
+            TypeGenerator::CooperativeMatrix { columns, rows }.into()
+        }
         _ => return Ok(None),
     };
 

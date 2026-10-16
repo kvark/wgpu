@@ -323,14 +323,20 @@ where
             rows,
             scalar,
             role,
+            scope,
         } => {
             write!(
                 out,
-                "coop_mat{}x{}<{},{}>",
-                columns as u32,
-                rows as u32,
+                "coop_mat{}x{}<{},{}{}>",
+                columns,
+                rows,
                 scalar.try_to_wgsl().unwrap_or_default(),
                 role.to_wgsl(),
+                if scope == crate::CooperativeScope::Workgroup {
+                    ",workgroup"
+                } else {
+                    ""
+                },
             )?;
         }
         TypeInner::Pointer { base, space } => {

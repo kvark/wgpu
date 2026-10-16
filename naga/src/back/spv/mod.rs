@@ -451,10 +451,11 @@ impl NumericType {
 #[derive(Debug, PartialEq, Hash, Eq, Copy, Clone)]
 enum CooperativeType {
     Matrix {
-        columns: crate::CooperativeSize,
-        rows: crate::CooperativeSize,
+        columns: u32,
+        rows: u32,
         scalar: crate::Scalar,
         role: crate::CooperativeRole,
+        scope: crate::CooperativeScope,
     },
 }
 
@@ -466,11 +467,13 @@ impl CooperativeType {
                 rows,
                 scalar,
                 role,
+                scope,
             } => Some(Self::Matrix {
                 columns,
                 rows,
                 scalar,
                 role,
+                scope,
             }),
             _ => None,
         }
@@ -1323,6 +1326,8 @@ pub fn supported_capabilities() -> crate::valid::Capabilities {
         | Caps::STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING
         | Caps::STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING
         | Caps::COOPERATIVE_MATRIX
+        | Caps::SHADER_BFLOAT16
+        | Caps::COOPERATIVE_MATRIX_WORKGROUP
         | Caps::PER_VERTEX
         | Caps::RAY_TRACING_PIPELINE
         | Caps::DRAW_INDEX

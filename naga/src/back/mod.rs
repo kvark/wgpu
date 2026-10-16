@@ -40,6 +40,11 @@ pub const INDENT: &str = "    ";
 /// Expressions that need baking.
 pub type NeedBakeExpressions = crate::FastHashSet<crate::Handle<crate::Expression>>;
 
+/// Whether a module uses workgroup-scope cooperative matrices, including inferred types.
+pub fn uses_workgroup_cooperative_matrix(module: &crate::Module) -> bool {
+    module.cooperative_matrix_usage().workgroup
+}
+
 /// Returns `true` if `module` produces any `bf16` value.
 ///
 /// A value converted to `bf16` and straight back leaves no `bf16` type in the

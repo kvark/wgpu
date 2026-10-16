@@ -419,10 +419,10 @@ impl super::Validator {
             if scalar.kind == Sk::BFloat
                 && !self
                     .capabilities
-                    .contains(super::Capabilities::COOPERATIVE_MATRIX_BFLOAT16)
+                    .contains(super::Capabilities::SHADER_BFLOAT16)
             {
                 return Err(ExpressionError::MissingCapabilities(
-                    super::Capabilities::COOPERATIVE_MATRIX_BFLOAT16,
+                    super::Capabilities::SHADER_BFLOAT16,
                 ));
             }
         }
@@ -1468,7 +1468,19 @@ impl super::Validator {
                 }
             },
             E::SubgroupBallotResult | E::SubgroupOperationResult { .. } => self.subgroup_stages,
-            E::CooperativeLoad { ref data, .. } => {
+            E::CooperativeLoad {
+                scope, ref data, ..
+            } => {
+                if scope == crate::CooperativeScope::Workgroup {
+                    if !self
+                        .capabilities
+                        .contains(super::Capabilities::COOPERATIVE_MATRIX_WORKGROUP)
+                    {
+                        return Err(ExpressionError::MissingCapabilities(
+                            super::Capabilities::COOPERATIVE_MATRIX_WORKGROUP,
+                        ));
+                    }
+                }
                 if resolver[data.pointer]
                     .pointer_base_type()
                     .and_then(|tr| tr.inner_with(&module.types).scalar())
@@ -1485,15 +1497,22 @@ impl super::Validator {
                         rows,
                         scalar,
                         role,
-                    } if role == expected_role => Ok((columns as u32, rows as u32, scalar)),
+                        scope,
+                    } if role == expected_role => Ok((columns, rows, scalar, scope)),
                     ref other => {
                         log::debug!("{expected_role:?} operand type: {other:?}");
                         Err(ExpressionError::InvalidCooperativeOperand(operand))
                     }
                 };
-                let (a_columns, a_rows, a_scalar) = operand(a, crate::CooperativeRole::A)?;
-                let (b_columns, b_rows, b_scalar) = operand(b, crate::CooperativeRole::B)?;
-                let (c_columns, c_rows, _) = operand(c, crate::CooperativeRole::C)?;
+                let (a_columns, a_rows, a_scalar, a_scope) = operand(a, crate::CooperativeRole::A)?;
+                let (b_columns, b_rows, b_scalar, b_scope) = operand(b, crate::CooperativeRole::B)?;
+                let (c_columns, c_rows, _, c_scope) = operand(c, crate::CooperativeRole::C)?;
+                if a_scope != b_scope {
+                    return Err(ExpressionError::InvalidCooperativeOperand(b));
+                }
+                if a_scope != c_scope {
+                    return Err(ExpressionError::InvalidCooperativeOperand(c));
+                }
                 // A and B share one component type. C may be a wider accumulator.
                 if a_scalar != b_scalar {
                     return Err(ExpressionError::InvalidCooperativeComponentType {

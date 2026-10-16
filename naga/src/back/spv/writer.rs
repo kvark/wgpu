@@ -2207,12 +2207,16 @@ impl Writer {
                 rows,
                 scalar,
                 role,
+                scope,
             } => {
                 let scalar_id =
                     self.get_localtype_id(LocalType::Numeric(NumericType::Scalar(scalar)));
-                let scope_id = self.get_index_constant(spirv::Scope::Subgroup as u32);
-                let columns_id = self.get_index_constant(columns as u32);
-                let rows_id = self.get_index_constant(rows as u32);
+                let scope_id = self.get_index_constant(match scope {
+                    crate::CooperativeScope::Subgroup => spirv::Scope::Subgroup,
+                    crate::CooperativeScope::Workgroup => spirv::Scope::Workgroup,
+                } as u32);
+                let columns_id = self.get_index_constant(columns);
+                let rows_id = self.get_index_constant(rows);
                 let role_id =
                     self.get_index_constant(spirv::CooperativeMatrixUse::from(role) as u32);
                 Instruction::type_coop_matrix(id, scalar_id, scope_id, rows_id, columns_id, role_id)
@@ -4309,26 +4313,15 @@ impl Writer {
     ) -> Result<(), Error> {
         self.reset();
 
+        let cooperative_matrices = ir_module.cooperative_matrix_usage();
+        if cooperative_matrices.workgroup {
+            if self.lang_version() < (1, 6) {
+                return Err(Error::SpirvVersionTooLow(1, 6));
+            }
+            self.use_extension("SPV_NV_cooperative_matrix2");
+        }
         let requested_memory_model = self.memory_model;
-        // A loaded or multiplied matrix doesn't need its type in the arena.
-        let uses_cooperative_matrix = ir_module
-            .types
-            .iter()
-            .any(|(_, ty)| matches!(ty.inner, crate::TypeInner::CooperativeMatrix { .. }))
-            || ir_module
-                .functions
-                .iter()
-                .map(|(_, function)| function)
-                .chain(ir_module.entry_points.iter().map(|ep| &ep.function))
-                .flat_map(|function| function.expressions.iter())
-                .any(|(_, expression)| {
-                    matches!(
-                        *expression,
-                        crate::Expression::CooperativeLoad { .. }
-                            | crate::Expression::CooperativeMultiplyAdd { .. }
-                    )
-                });
-        if uses_cooperative_matrix {
+        if cooperative_matrices.any {
             self.memory_model = spirv::MemoryModel::Vulkan;
         }
         let result = (|| {

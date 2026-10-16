@@ -214,10 +214,16 @@ pub enum FunctionError {
     WorkgroupUniformLoadInvalidPointer(Handle<crate::Expression>),
     #[error("Subgroup operation is invalid")]
     InvalidSubgroup(#[from] SubgroupError),
+    #[error("Workgroup cooperative operand {0:?} or its control flow is not uniform")]
+    NonUniformCooperativeOperand(Handle<crate::Expression>),
+    #[error("Workgroup cooperative function {0:?} is called in non-uniform control flow")]
+    NonUniformCooperativeCall(Handle<crate::Function>),
     #[error("Invalid target type for a cooperative store")]
     InvalidCooperativeStoreTarget(Handle<crate::Expression>),
     #[error("Cooperative load/store data pointer has invalid type")]
     InvalidCooperativeDataPointer(Handle<crate::Expression>),
+    #[error("Cooperative load/store stride must be a u32 scalar")]
+    InvalidCooperativeStride(Handle<crate::Expression>),
     #[error("Emit statement should not cover \"result\" expressions like {0:?}")]
     EmitResult(Handle<crate::Expression>),
     #[error("Expression not visited by the appropriate statement")]
@@ -1685,6 +1691,13 @@ impl super::Validator {
                             }
                         };
 
+                    let stride_ty =
+                        context.resolve_type_inner(data.stride, &self.valid_expression_set)?;
+                    if *stride_ty != Ti::Scalar(crate::Scalar::U32) {
+                        return Err(FunctionError::InvalidCooperativeStride(data.stride)
+                            .with_span_handle(data.stride, context.expressions));
+                    }
+                    context.resolve_type_inner(data.pointer, &self.valid_expression_set)?;
                     let ptr_ty = context.resolve_pointer_type(data.pointer);
                     let ptr_scalar = ptr_ty
                         .pointer_base_type()
@@ -1879,7 +1892,8 @@ impl super::Validator {
         mod_info: &ModuleInfo,
         entry_point: bool,
     ) -> Result<FunctionInfo, WithSpan<FunctionError>> {
-        let mut info = mod_info.process_function(fun, module, self.flags, self.capabilities)?;
+        let mut info =
+            mod_info.process_function(fun, module, self.flags, self.capabilities, entry_point)?;
 
         let local_expr_kind = crate::proc::ExpressionKindTracker::from_arena(&fun.expressions);
 
@@ -1993,6 +2007,7 @@ impl super::Validator {
                 }
             }
         }
+        info.validate_operand_uniformity(fun, module, &mod_info.functions)?;
         Ok(info)
     }
 }

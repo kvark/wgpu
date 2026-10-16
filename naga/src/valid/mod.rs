@@ -229,23 +229,25 @@ bitflags::bitflags! {
         /// Support for the `storageFence` and `workgroupFence` built-in
         /// functions: memory ordering without execution synchronization.
         const MEMORY_FENCE = 1 << 46;
-        /// Support for BF16 storage and conversions.
+        /// Support for BF16 storage, conversions, and cooperative-matrix operands.
+        /// Vulkan clients must enable both `shaderBFloat16Type` and
+        /// `shaderBFloat16CooperativeMatrix`.
         const SHADER_BFLOAT16 = 1 << 47;
-        /// Support for BF16 cooperative-matrix operands.
-        const COOPERATIVE_MATRIX_BFLOAT16 = 1 << 48;
+        /// Workgroup-scope cooperative matrices with flexible dimensions.
+        const COOPERATIVE_MATRIX_WORKGROUP = 1 << 49;
     }
 }
 
 /// A cooperative matrix tile shape, named columns × rows like `coop_mat{columns}x{rows}`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct CooperativeMatrixShape {
-    pub columns: crate::CooperativeSize,
-    pub rows: crate::CooperativeSize,
+    pub columns: u32,
+    pub rows: u32,
 }
 
 impl CooperativeMatrixShape {
     /// `columns` and `rows` are the tile dimensions. Values other than 8 and 16
-    /// cannot appear in the IR.
+    /// are not part of the subgroup shape allow-list.
     pub fn from_dimensions(columns: u32, rows: u32) -> Option<Self> {
         Some(Self {
             columns: cooperative_size(columns)?,
@@ -254,32 +256,30 @@ impl CooperativeMatrixShape {
     }
 }
 
-const fn cooperative_size(value: u32) -> Option<crate::CooperativeSize> {
+const fn cooperative_size(value: u32) -> Option<u32> {
     match value {
-        8 => Some(crate::CooperativeSize::Eight),
-        16 => Some(crate::CooperativeSize::Sixteen),
+        8 | 16 => Some(value),
         _ => None,
     }
 }
 
 const fn all_cooperative_matrix_shapes() -> [CooperativeMatrixShape; 4] {
-    use crate::CooperativeSize::{Eight, Sixteen};
     [
         CooperativeMatrixShape {
-            columns: Eight,
-            rows: Eight,
+            columns: 8,
+            rows: 8,
         },
         CooperativeMatrixShape {
-            columns: Eight,
-            rows: Sixteen,
+            columns: 8,
+            rows: 16,
         },
         CooperativeMatrixShape {
-            columns: Sixteen,
-            rows: Eight,
+            columns: 16,
+            rows: 8,
         },
         CooperativeMatrixShape {
-            columns: Sixteen,
-            rows: Sixteen,
+            columns: 16,
+            rows: 16,
         },
     ]
 }
@@ -411,6 +411,8 @@ pub struct ModuleInfo {
     functions: Vec<FunctionInfo>,
     entry_points: Vec<FunctionInfo>,
     const_expression_types: Box<[TypeResolution]>,
+    #[cfg_attr(any(feature = "serialize", feature = "deserialize"), serde(skip))]
+    cooperative_matrix_usage: crate::proc::CooperativeMatrixUsage,
 }
 
 impl ops::Index<Handle<crate::Type>> for ModuleInfo {
@@ -870,6 +872,7 @@ impl Validator {
             entry_points: Vec::with_capacity(module.entry_points.len()),
             const_expression_types: vec![placeholder; module.global_expressions.len()]
                 .into_boxed_slice(),
+            cooperative_matrix_usage: module.cooperative_matrix_usage(),
         };
 
         for (handle, ty) in module.types.iter() {

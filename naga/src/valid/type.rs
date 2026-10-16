@@ -466,20 +466,24 @@ impl super::Validator {
                 rows,
                 scalar,
                 role: _,
+                scope,
             } => {
                 self.require_type_capability(Capabilities::COOPERATIVE_MATRIX)?;
                 if scalar.kind == crate::ScalarKind::BFloat {
-                    self.require_type_capability(Capabilities::COOPERATIVE_MATRIX_BFLOAT16)?;
                     let _ = self.check_width(scalar)?;
                 }
-                if !self
-                    .cooperative_matrix_shapes
-                    .contains(&super::CooperativeMatrixShape { columns, rows })
+                if columns == 0 || rows == 0 {
+                    return Err(TypeError::UnsupportedCooperativeMatrixShape { columns, rows });
+                }
+                if scope == crate::CooperativeScope::Workgroup {
+                    self.require_type_capability(Capabilities::COOPERATIVE_MATRIX_WORKGROUP)?;
+                }
+                if scope == crate::CooperativeScope::Subgroup
+                    && !self
+                        .cooperative_matrix_shapes
+                        .contains(&super::CooperativeMatrixShape { columns, rows })
                 {
-                    return Err(TypeError::UnsupportedCooperativeMatrixShape {
-                        columns: columns as u32,
-                        rows: rows as u32,
-                    });
+                    return Err(TypeError::UnsupportedCooperativeMatrixShape { columns, rows });
                 }
                 // Allow f16 (width 2) and f32 (width 4) for cooperative matrices
                 if !matches!(
