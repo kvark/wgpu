@@ -250,7 +250,11 @@ impl crate::TypeInner {
                 rows,
                 scalar,
                 role: _,
-            } => Some(columns as u32 * rows as u32 * scalar.width as u32),
+                scope: _,
+            } => columns
+                .checked_mul(rows)?
+                .checked_mul(scalar.width as u32)
+                .filter(|&size| size <= MAX_TYPE_SIZE),
             Self::Pointer { .. } | Self::ValuePointer { .. } => Some(POINTER_SPAN),
             Self::Array {
                 base: _,

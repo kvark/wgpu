@@ -1,0 +1,104 @@
+; SPIR-V
+; Version: 1.6
+; Generator: rspirv
+; Bound: 61
+OpCapability Shader
+OpCapability VulkanMemoryModel
+OpCapability BFloat16TypeKHR
+OpCapability StorageBuffer16BitAccess
+OpCapability UniformAndStorageBuffer16BitAccess
+OpCapability CooperativeMatrixKHR
+OpCapability BFloat16CooperativeMatrixKHR
+OpExtension "SPV_NV_cooperative_matrix2"
+OpExtension "SPV_KHR_vulkan_memory_model"
+OpExtension "SPV_KHR_bfloat16"
+OpExtension "SPV_KHR_16bit_storage"
+OpExtension "SPV_KHR_cooperative_matrix"
+%1 = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical Vulkan
+OpEntryPoint GLCompute %42 "main" %39 %16 %19 %22 %25
+OpExecutionMode %42 LocalSize 256 1 1
+OpDecorate %4 ArrayStride 2
+OpDecorate %6 ArrayStride 4
+OpDecorate %16 NonWritable
+OpDecorate %16 DescriptorSet 0
+OpDecorate %16 Binding 0
+OpDecorate %17 Block
+OpMemberDecorate %17 0 Offset 0
+OpDecorate %19 NonWritable
+OpDecorate %19 DescriptorSet 0
+OpDecorate %19 Binding 1
+OpDecorate %20 Block
+OpMemberDecorate %20 0 Offset 0
+OpDecorate %22 DescriptorSet 0
+OpDecorate %22 Binding 2
+OpDecorate %23 Block
+OpMemberDecorate %23 0 Offset 0
+OpDecorate %39 BuiltIn WorkgroupId
+%2 = OpTypeVoid
+%3 = OpTypeFloat 16 BFloat16KHR
+%4 = OpTypeRuntimeArray %3
+%5 = OpTypeFloat 32
+%6 = OpTypeRuntimeArray %5
+%9 = OpTypeInt 32 0
+%8 = OpConstant  %9  2
+%10 = OpConstant  %9  256
+%11 = OpConstant  %9  128
+%7 = OpTypeCooperativeMatrixKHR %5 %8 %11 %10 %8
+%13 = OpConstant  %9  64
+%14 = OpConstant  %9  0
+%12 = OpTypeCooperativeMatrixKHR %3 %8 %11 %13 %14
+%15 = OpTypeVector %9 3
+%17 = OpTypeStruct %4
+%18 = OpTypePointer StorageBuffer %17
+%16 = OpVariable  %18  StorageBuffer
+%20 = OpTypeStruct %4
+%21 = OpTypePointer StorageBuffer %20
+%19 = OpVariable  %21  StorageBuffer
+%23 = OpTypeStruct %6
+%24 = OpTypePointer StorageBuffer %23
+%22 = OpVariable  %24  StorageBuffer
+%26 = OpTypePointer Private %7
+%27 = OpConstantNull  %7
+%25 = OpVariable  %26  Private %27
+%31 = OpTypeFunction %12 %9
+%32 = OpTypePointer StorageBuffer %4
+%35 = OpTypePointer StorageBuffer %3
+%40 = OpTypePointer Input %15
+%39 = OpVariable  %40  Input
+%43 = OpTypeFunction %2
+%46 = OpTypePointer StorageBuffer %6
+%48 = OpConstant  %9  8192
+%54 = OpConstant  %9  1
+%53 = OpTypeCooperativeMatrixKHR %3 %8 %13 %10 %54
+%59 = OpTypePointer StorageBuffer %5
+%30 = OpFunction  %12  None %31
+%29 = OpFunctionParameter  %9
+%28 = OpLabel
+%33 = OpAccessChain  %32  %16 %14
+OpBranch %34
+%34 = OpLabel
+%36 = OpAccessChain  %35  %33 %29
+%37 = OpCooperativeMatrixLoadKHR  %12  %36 %14 %13
+OpReturnValue %37
+OpFunctionEnd
+%42 = OpFunction  %2  None %43
+%38 = OpLabel
+%41 = OpLoad  %15  %39
+%44 = OpAccessChain  %32  %16 %14
+%45 = OpAccessChain  %32  %19 %14
+%47 = OpAccessChain  %46  %22 %14
+OpBranch %49
+%49 = OpLabel
+%50 = OpCompositeExtract  %9  %41 0
+%51 = OpIMul  %9  %50 %48
+%52 = OpFunctionCall  %12  %30 %51
+%55 = OpAccessChain  %35  %45 %14
+%56 = OpCooperativeMatrixLoadKHR  %53  %55 %14 %10
+%57 = OpCooperativeMatrixMulAddKHR  %7  %52 %56 %27
+OpStore %25 %57
+%58 = OpLoad  %7  %25
+%60 = OpAccessChain  %59  %47 %14
+OpCooperativeMatrixStoreKHR %60 %58 %14 %10 NonPrivatePointer
+OpReturn
+OpFunctionEnd

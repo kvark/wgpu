@@ -2057,6 +2057,7 @@ impl<W: Write> Writer<W> {
                 columns,
                 rows,
                 role,
+                scope,
                 ref data,
             } => {
                 let suffix = if data.row_major { "T" } else { "" };
@@ -2070,11 +2071,16 @@ impl<W: Write> Writer<W> {
                     .unwrap();
                 write!(
                     self.out,
-                    "coopLoad{suffix}<coop_mat{}x{}<{},{:?}>>(",
-                    columns as u32,
-                    rows as u32,
+                    "coopLoad{suffix}<coop_mat{}x{}<{},{:?}{}>>(",
+                    columns,
+                    rows,
                     scalar.try_to_wgsl().unwrap(),
                     role,
+                    if scope == crate::CooperativeScope::Workgroup {
+                        ",workgroup"
+                    } else {
+                        ""
+                    },
                 )?;
                 self.write_expr(module, data.pointer, func_ctx)?;
                 write!(self.out, ", ")?;

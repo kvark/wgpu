@@ -2050,8 +2050,8 @@ fn cooperative_matrix_shapes_come_from_the_caller() {
     ));
 
     let only_8x8 = [valid::CooperativeMatrixShape {
-        columns: naga::CooperativeSize::Eight,
-        rows: naga::CooperativeSize::Eight,
+        columns: 8,
+        rows: 8,
     }];
     valid::Validator::new(ValidationFlags::default(), caps)
         .cooperative_matrix_shapes(only_8x8)

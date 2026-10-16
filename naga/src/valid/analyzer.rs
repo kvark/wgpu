@@ -5,6 +5,8 @@
 //! - texture/sampler pairs
 //! - expression reference counts
 
+mod operand_uniformity;
+
 use alloc::{boxed::Box, vec};
 use core::ops;
 
@@ -246,6 +248,10 @@ pub struct FunctionInfo {
     pub uniformity: Uniformity,
     /// Function may kill the invocation.
     pub may_kill: bool,
+    #[cfg_attr(any(feature = "serialize", feature = "deserialize"), serde(skip))]
+    uniformity_graph: Option<Box<operand_uniformity::Graph>>,
+    #[cfg_attr(any(feature = "serialize", feature = "deserialize"), serde(skip))]
+    operand_uniformity: Option<Box<operand_uniformity::Summary>>,
 
     /// All pairs of (texture, sampler) globals that may be used together in
     /// sampling operations by this function and its callees. This includes
@@ -363,6 +369,9 @@ impl FunctionInfo {
         expr: Handle<crate::Expression>,
         global_use: GlobalUse,
     ) -> NonUniformResult {
+        if let Some(graph) = self.uniformity_graph.as_mut() {
+            graph.add_ref(expr);
+        }
         let info = &mut self.expressions[expr.index()];
         info.ref_count += 1;
         // Record usage if this expression may access a global
@@ -423,6 +432,9 @@ impl FunctionInfo {
         expr: Handle<crate::Expression>,
         assignable_global: &mut Option<Handle<crate::GlobalVariable>>,
     ) -> NonUniformResult {
+        if let Some(graph) = self.uniformity_graph.as_mut() {
+            graph.add_ref(expr);
+        }
         let info = &mut self.expressions[expr.index()];
         info.ref_count += 1;
         // propagate the assignable global up the chain, till it either hits
@@ -538,6 +550,9 @@ impl FunctionInfo {
     ) -> Result<(), ExpressionError> {
         use crate::{Expression as E, SampleLevel as Sl};
 
+        if let Some(graph) = self.uniformity_graph.as_mut() {
+            graph.begin_expression(handle);
+        }
         let expression = &expression_arena[handle];
         let mut assignable_global = None;
         let uniformity = match *expression {
@@ -863,6 +878,9 @@ impl FunctionInfo {
             assignable_global,
             ty,
         };
+        if let Some(graph) = self.uniformity_graph.as_mut() {
+            graph.finish_expression(expression_arena, resolve_context);
+        }
         Ok(())
     }
 
@@ -1265,12 +1283,22 @@ impl ModuleInfo {
         module: &crate::Module,
         flags: ValidationFlags,
         capabilities: super::Capabilities,
+        entry_point: bool,
     ) -> Result<FunctionInfo, WithSpan<FunctionError>> {
         let mut info = FunctionInfo {
             flags,
             available_stages: ShaderStages::all(),
             uniformity: Uniformity::new(),
             may_kill: false,
+            uniformity_graph: (self.cooperative_matrix_usage.workgroup
+                && flags.contains(ValidationFlags::CONTROL_FLOW_UNIFORMITY))
+            .then(|| {
+                Box::new(operand_uniformity::Graph::new(
+                    fun.expressions.len(),
+                    entry_point,
+                ))
+            }),
+            operand_uniformity: None,
             sampling_set: crate::FastHashSet::default(),
             global_uses: vec![GlobalUse::empty(); module.global_variables.len()].into_boxed_slice(),
             expressions: vec![ExpressionInfo::new(); fun.expressions.len()].into_boxed_slice(),
@@ -1406,6 +1434,8 @@ fn uniform_control_flow() {
         available_stages: ShaderStages::all(),
         uniformity: Uniformity::new(),
         may_kill: false,
+        uniformity_graph: None,
+        operand_uniformity: None,
         sampling_set: crate::FastHashSet::default(),
         global_uses: vec![GlobalUse::empty(); global_var_arena.len()].into_boxed_slice(),
         expressions: vec![ExpressionInfo::new(); expressions.len()].into_boxed_slice(),

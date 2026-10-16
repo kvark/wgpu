@@ -2958,11 +2958,13 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                             return Err(Box::new(Error::UnsupportedCooperativeScalar(span)));
                         };
                         let role = tl.cooperative_role(ctx)?;
+                        let scope = tl.maybe_cooperative_scope(ctx)?;
                         ir::TypeInner::CooperativeMatrix {
                             columns,
                             rows,
                             scalar,
                             role,
+                            scope,
                         }
                     }
                 };
@@ -3213,24 +3215,21 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
 
                     let mut args = ctx.prepare_args(arguments, 1, call_span);
                     let pointer = self.expression(args.next()?, ctx)?;
-                    let (columns, rows, role) = match ctx.module.types[matrix_ty].inner {
+                    let (columns, rows, role, scope) = match ctx.module.types[matrix_ty].inner {
                         ir::TypeInner::CooperativeMatrix {
                             columns,
                             rows,
                             role,
+                            scope,
                             ..
-                        } => (columns, rows, role),
+                        } => (columns, rows, role, scope),
                         _ => return Err(Box::new(Error::InvalidCooperativeLoadType(matrix_span))),
                     };
                     let stride = if args.total_args > 1 {
                         self.expression(args.next()?, ctx)?
                     } else {
                         // Infer the stride from the matrix type
-                        let stride = if row_major {
-                            columns as u32
-                        } else {
-                            rows as u32
-                        };
+                        let stride = if row_major { columns } else { rows };
                         ctx.append_expression(
                             ir::Expression::Literal(ir::Literal::U32(stride)),
                             Span::UNDEFINED,
@@ -3243,6 +3242,7 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                             columns,
                             rows,
                             role,
+                            scope,
                             data: crate::CooperativeData {
                                 pointer,
                                 stride,
@@ -3916,9 +3916,9 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                         let stride = match *resolve_inner!(ctx, target) {
                             ir::TypeInner::CooperativeMatrix { columns, rows, .. } => {
                                 if row_major {
-                                    columns as u32
+                                    columns
                                 } else {
-                                    rows as u32
+                                    rows
                                 }
                             }
                             _ => 0,
@@ -3931,6 +3931,9 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                     args.finish()?;
 
                     let rctx = ctx.runtime_expression_ctx(function_span)?;
+                    rctx.block
+                        .extend(rctx.emitter.finish(&rctx.function.expressions));
+                    rctx.emitter.start(&rctx.function.expressions);
                     rctx.block.push(
                         crate::Statement::CooperativeStore {
                             target,

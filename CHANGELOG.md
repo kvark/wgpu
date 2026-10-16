@@ -153,7 +153,8 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 #### Naga
 
-- Add native `wgpu_bfloat16` storage, F32 conversions and cooperative matrix products for the SPIR-V backend.
+- Add workgroup-scope cooperative matrices with positive u32 dimensions to Naga's WGSL extension and SPIR-V 1.6 backend.
+- Add native `wgpu_bfloat16` storage, F32 conversions and cooperative matrix products for the SPIR-V backend, covered by one `SHADER_BFLOAT16` validation capability.
 
 - Add `@builtin(hit_barycentrics)`, a `vec2<f32>` readable in `@any_hit` and `@closest_hit` ray tracing pipeline shaders, holding two of the barycentric coordinates of the hit point on the triangle (the third is `1.0 - x - y`). Currently only supported with the SPIR-V backend. By @JMS55 in [#10193](https://github.com/gfx-rs/wgpu/pull/10193).
 - Add `coop_mat8x16` and `coop_mat16x8`, named columns-first like `matCxR`. `coopMultiplyAdd` requires A and B to share a component type and the operands to be shaped K×M, N×K, and N×M. Shader validation accepts only the tile shapes reported by `Adapter::cooperative_matrix_properties`. By @kvark in [#10414](https://github.com/gfx-rs/wgpu/pull/10414).
@@ -238,6 +239,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 #### naga
 
 - Reject unsigned integer arguments to WGSL `sign()` during Naga validation instead of allowing them to reach and panic in the SPIR-V backend. By @notferdon in [#10451](https://github.com/gfx-rs/wgpu/pull/10451).
+- Emit computed `coopStore` arguments before the store instruction, and validate pointer/stride expression availability.
 - Stop emitting explicit layout decorations on SPIR-V types used by workgroup and task-payload variables, fixing `VUID-StandaloneSpirv-None-10684`. Types also used by uniform/storage buffers get a separate undecorated declaration on SPIR-V 1.4+. By @kvark in [#9295](https://github.com/gfx-rs/wgpu/pull/9295).
 - Emit SPIR-V with explicit Vulkan memory model semantics: storage and workgroup pointer accesses carry `NonPrivatePointer`, and storage texture accesses carry `NonPrivateTexel`. Ordinary storage-buffer accesses defer availability/visibility to storage barriers with `MakeAvailable`/`MakeVisible`, avoiding per-access fences; workgroup and texture accesses retain per-access scopes. Fence semantics also include `MakeAvailable`/`MakeVisible`, and atomics and storage fences use `QueueFamily` scope instead of `Device`. The `Coherent`/`Volatile` decorations (forbidden by the model) are replaced by per-access memory operands when accesses can be traced to their decorated globals; decorations are not tracked through pointer function arguments. The model is declared whenever the module requires it (cooperative matrices) or when `spv::Options::use_vulkan_memory_model` requests it. Accesses to storage globals that no entry point writes stay private. By @kvark in [#10016](https://github.com/gfx-rs/wgpu/issues/10016) and [kvark/wgpu#2](https://github.com/kvark/wgpu/pull/2).
 - Fix panics when shader `var<immediate>` size is larger than 256 bytes. By @beicause in [#9725](https://github.com/gfx-rs/wgpu/pull/9725).

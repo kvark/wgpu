@@ -241,13 +241,14 @@ impl Display for TypeContext<'_> {
                 rows,
                 scalar,
                 role: _,
+                scope: _,
             } => {
                 write!(
                     out,
                     "{NAMESPACE}::simdgroup_{}{}x{}",
                     scalar.to_msl_name(),
-                    columns as u32,
-                    rows as u32,
+                    columns,
+                    rows,
                 )
             }
             crate::TypeInner::Pointer { base, space } => {
@@ -524,15 +525,15 @@ pub(super) enum WrappedFunction {
     },
     CooperativeLoad {
         space_name: &'static str,
-        columns: crate::CooperativeSize,
-        rows: crate::CooperativeSize,
+        columns: u32,
+        rows: u32,
         scalar: crate::Scalar,
     },
     CooperativeMultiplyAdd {
         space_name: &'static str,
-        columns: crate::CooperativeSize,
-        rows: crate::CooperativeSize,
-        intermediate: crate::CooperativeSize,
+        columns: u32,
+        rows: u32,
+        intermediate: u32,
         ab_scalar: crate::Scalar,
         c_scalar: crate::Scalar,
     },
@@ -3830,14 +3831,15 @@ impl<W: Write> Writer<W> {
                 rows,
                 scalar,
                 role: _,
+                scope: _,
             }) => {
                 write!(
                     self.out,
                     "{}::simdgroup_{}{}x{}",
                     NAMESPACE,
                     scalar.to_msl_name(),
-                    columns as u32,
-                    rows as u32,
+                    columns,
+                    rows,
                 )?;
             }
             TypeResolution::Value(ref other) => {
@@ -4574,6 +4576,10 @@ impl<W: Write> Writer<W> {
         options: &Options,
         pipeline_options: &PipelineOptions,
     ) -> Result<TranslationInfo, Error> {
+        if back::uses_workgroup_cooperative_matrix(module) {
+            return Err(Error::UnsupportedCooperativeMatrix);
+        }
+
         if options.lang_version < (3, 1) && back::uses_bfloat16(module) {
             return Err(Error::CapabilityNotSupported(
                 valid::Capabilities::SHADER_BFLOAT16,
@@ -6691,8 +6697,8 @@ template <typename A>
         &mut self,
         module: &crate::Module,
         func_ctx: &back::FunctionCtx,
-        columns: crate::CooperativeSize,
-        rows: crate::CooperativeSize,
+        columns: u32,
+        rows: u32,
         pointer: Handle<crate::Expression>,
     ) -> BackendResult {
         let ptr_ty = func_ctx.resolve_type(pointer, &module.types);
@@ -6717,13 +6723,13 @@ template <typename A>
         writeln!(
             self.out,
             "{NAMESPACE}::simdgroup_{scalar_name}{}x{} {COOPERATIVE_LOAD_FUNCTION}(const {space_name} {scalar_name}* ptr, int stride, bool is_row_major) {{",
-            columns as u32, rows as u32,
+            columns, rows,
         )?;
         let l1 = back::Level(1);
         writeln!(
             self.out,
             "{l1}{NAMESPACE}::simdgroup_{scalar_name}{}x{} m;",
-            columns as u32, rows as u32
+            columns, rows
         )?;
         let matrix_origin = "0";
         writeln!(
@@ -6779,13 +6785,13 @@ template <typename A>
         writeln!(
             self.out,
             "{NAMESPACE}::simdgroup_{c_scalar_name}{}x{} {COOPERATIVE_MULTIPLY_ADD_FUNCTION}(const {space_name} {NAMESPACE}::simdgroup_{ab_scalar_name}{}x{}& a, const {space_name} {NAMESPACE}::simdgroup_{ab_scalar_name}{}x{}& b, const {space_name} {NAMESPACE}::simdgroup_{c_scalar_name}{}x{}& c) {{",
-            b_c as u32, a_r as u32, a_c as u32, a_r as u32, b_c as u32, b_r as u32, b_c as u32, a_r as u32,
+            b_c, a_r, a_c, a_r, b_c, b_r, b_c, a_r,
         )?;
         let l1 = back::Level(1);
         writeln!(
             self.out,
             "{l1}{NAMESPACE}::simdgroup_{c_scalar_name}{}x{} d;",
-            b_c as u32, a_r as u32
+            b_c, a_r
         )?;
         writeln!(self.out, "{l1}simdgroup_multiply_accumulate(d,a,b,c);")?;
         writeln!(self.out, "{l1}return d;")?;
@@ -6873,6 +6879,7 @@ template <typename A>
                     columns,
                     rows,
                     role: _,
+                    scope: _,
                     ref data,
                 } => {
                     self.write_wrapped_cooperative_load(

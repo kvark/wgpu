@@ -188,6 +188,21 @@ impl<'iter, 'source> TemplateListIter<'iter, 'source> {
         Ok(true)
     }
 
+    pub fn maybe_cooperative_scope(
+        &mut self,
+        ctx: &ExpressionContext<'source, '_, '_>,
+    ) -> Result<'source, crate::CooperativeScope> {
+        let Some(expr) = self.template_list.next() else {
+            return Ok(crate::CooperativeScope::Subgroup);
+        };
+        let (word, span) = ctx.enumerant(*expr)?;
+        match word {
+            "subgroup" => Ok(crate::CooperativeScope::Subgroup),
+            "workgroup" => Ok(crate::CooperativeScope::Workgroup),
+            _ => Err(Box::new(Error::UnknownCooperativeScope(span))),
+        }
+    }
+
     pub fn cooperative_role(
         &mut self,
         ctx: &ExpressionContext<'source, '_, '_>,
