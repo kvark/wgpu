@@ -58,6 +58,63 @@ fn require_and_forbid(required: &[Ca], forbidden: &[Ca], source: &str) {
 }
 
 #[test]
+fn f16_denorm_preservation_is_optional_and_capability_checked() {
+    use naga::{back::spv, valid};
+
+    for (ty, enable) in [
+        ("f16", "enable f16;"),
+        ("bf16", "enable wgpu_bfloat16;"),
+        ("f32", ""),
+    ] {
+        let source = format!(
+            "{enable}
+            @group(0) @binding(0) var<storage, read_write> values: array<{ty}>;
+            @compute @workgroup_size(1) fn main() {{
+                values[0] = {ty}(f32(values[1]) + 1.0f);
+            }}"
+        );
+        let module = naga::front::wgsl::parse_str(&source).unwrap();
+        let info = valid::Validator::new(valid::ValidationFlags::all(), valid::Capabilities::all())
+            .validate(&module)
+            .unwrap();
+        for lang_version in [(1, 3), (1, 4)] {
+            for preserve in [false, true] {
+                let expected = preserve && ty == "f16";
+                let mut options = spv::Options {
+                    lang_version,
+                    ..Default::default()
+                };
+                options
+                    .flags
+                    .set(spv::WriterFlags::PRESERVE_F16_DENORMS, preserve);
+                let mut writer = spv::Writer::new(&options).unwrap();
+                let mut words = Vec::new();
+                writer
+                    .write(&module, &info, None, &None, &mut words)
+                    .unwrap();
+                let assembly = rspirv::dr::load_words(&words).unwrap().disassemble();
+                assert_eq!(assembly.contains("DenormPreserve 16"), expected);
+                assert_eq!(assembly.contains("OpCapability DenormPreserve"), expected);
+                assert_eq!(
+                    assembly.contains("SPV_KHR_float_controls"),
+                    expected && lang_version < (1, 4)
+                );
+                if expected {
+                    let mut allowed = writer
+                        .get_capabilities_used()
+                        .iter()
+                        .copied()
+                        .collect::<naga::FastHashSet<_>>();
+                    allowed.remove(&Ca::DenormPreserve);
+                    options.capabilities = Some(allowed);
+                    assert!(spv::write_vec(&module, &info, &options, None).is_err());
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn failed_write_restores_requested_memory_model() {
     use naga::back::spv;
     use naga::valid;

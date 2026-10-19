@@ -123,6 +123,7 @@ pub struct SpirvOutParameters {
     pub adjust_coordinate_space: bool,
     pub force_point_size: bool,
     pub clamp_frag_depth: bool,
+    pub preserve_f16_denorms: bool,
     pub separate_entry_points: bool,
     #[serde(deserialize_with = "deserialize_binding_map")]
     pub binding_map: naga::back::spv::BindingMap,
@@ -140,6 +141,7 @@ impl Default for SpirvOutParameters {
             adjust_coordinate_space: false,
             force_point_size: false,
             clamp_frag_depth: false,
+            preserve_f16_denorms: false,
             separate_entry_points: false,
             ray_query_initialization_tracking: true,
             use_storage_input_output_16: true,
@@ -164,6 +166,10 @@ impl SpirvOutParameters {
         );
         flags.set(spv::WriterFlags::FORCE_POINT_SIZE, self.force_point_size);
         flags.set(spv::WriterFlags::CLAMP_FRAG_DEPTH, self.clamp_frag_depth);
+        flags.set(
+            spv::WriterFlags::PRESERVE_F16_DENORMS,
+            self.preserve_f16_denorms,
+        );
         naga::back::spv::Options {
             lang_version: (self.version.0, self.version.1),
             flags,

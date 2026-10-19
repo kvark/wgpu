@@ -46,6 +46,7 @@ Bottom level categories:
 
 #### Naga
 
+- Add an opt-in SPIR-V writer flag to preserve f16 subnormals on supported devices.
 - Support BF16 storage, conversion and cooperative matrix operands in MSL 3.1 and later.
 
 ### Major changes

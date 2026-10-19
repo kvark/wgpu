@@ -1125,6 +1125,13 @@ bitflags::bitflags! {
         /// Note: VK_KHR_shader_non_semantic_info must be enabled. This will have no
         /// effect if `options.trace_ray_argument_validation` is set to false.
         const PRINT_ON_TRACE_RAYS_FAIL = 0x40;
+
+        /// Preserve IEEE f16 subnormals in every entry point of modules using f16.
+        /// Vulkan requires `shaderDenormPreserveFloat16 == VK_TRUE` and
+        /// `denormBehaviorIndependence == VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL`.
+        /// Below Vulkan 1.2, enable `VK_KHR_shader_float_controls` as well.
+        /// Modules without f16 do not request float controls.
+        const PRESERVE_F16_DENORMS = 0x80;
     }
 }
 
