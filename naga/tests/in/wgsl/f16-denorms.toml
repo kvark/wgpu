@@ -1,0 +1,6 @@
+targets = "SPIRV"
+capabilities = "SHADER_FLOAT16"
+
+[spv]
+version = [1, 3]
+preserve_f16_denorms = true

@@ -1835,7 +1835,7 @@ impl Writer {
         info: &FunctionInfo,
         ir_module: &crate::Module,
         debug_info: &Option<DebugInfoInner>,
-    ) -> Result<Instruction, Error> {
+    ) -> Result<Word, Error> {
         let mut interface_ids = Vec::new();
 
         let function_id = self.write_function(
@@ -1974,12 +1974,14 @@ impl Writer {
         };
         //self.check(exec_model.required_capabilities())?;
 
-        Ok(Instruction::entry_point(
+        Instruction::entry_point(
             exec_model,
             function_id,
             &entry_point.name,
             interface_ids.as_slice(),
-        ))
+        )
+        .to_words(&mut self.logical_layout.entry_points);
+        Ok(function_id)
     }
 
     fn make_scalar(&mut self, id: Word, scalar: crate::Scalar) -> Instruction {
@@ -4256,14 +4258,33 @@ impl Writer {
         }
 
         // write all or one entry points
+        let mut entry_point_ids = Vec::new();
         for (index, ir_ep) in ir_module.entry_points.iter().enumerate() {
             if ep_index.is_some() && ep_index != Some(index) {
                 continue;
             }
             let info = mod_info.get_entry_point(index);
-            let ep_instruction =
-                self.write_entry_point(ir_ep, info, ir_module, &debug_info_inner)?;
-            ep_instruction.to_words(&mut self.logical_layout.entry_points);
+            let id = self.write_entry_point(ir_ep, info, ir_module, &debug_info_inner)?;
+            if self.flags.contains(WriterFlags::PRESERVE_F16_DENORMS) {
+                entry_point_ids.push(id);
+            }
+        }
+
+        // Entry-point bodies can introduce f16 types; decide after writing all of them.
+        if self.flags.contains(WriterFlags::PRESERVE_F16_DENORMS)
+            && self.capabilities_used.contains(&spirv::Capability::Float16)
+        {
+            self.require_any(
+                "f16 denorm preservation",
+                &[spirv::Capability::DenormPreserve],
+            )?;
+            if self.lang_version() < (1, 4) {
+                self.use_extension("SPV_KHR_float_controls");
+            }
+            for id in entry_point_ids {
+                Instruction::execution_mode(id, spirv::ExecutionMode::DenormPreserve, &[16])
+                    .to_words(&mut self.logical_layout.execution_modes);
+            }
         }
 
         for capability in self.capabilities_used.iter() {
