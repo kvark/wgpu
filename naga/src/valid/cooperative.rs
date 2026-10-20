@@ -34,16 +34,44 @@ impl Validator {
                 "block must be a sized host-shareable value with alignment at most 16",
             ));
         }
+        // Tensor decode addressing ignores the storage array's ArrayStride.
+        if self.layouter[element].size != self.layouter[element].to_stride() {
+            return Err(invalid("block stride must not include implicit padding"));
+        }
         let mut types = vec![element];
         while let Some(ty) = types.pop() {
             match module.types[ty].inner {
-                TypeInner::Scalar(_) | TypeInner::Vector { .. } | TypeInner::Matrix { .. } => {}
+                TypeInner::Scalar(_) | TypeInner::Vector { .. } => {}
+                TypeInner::Matrix {
+                    columns,
+                    rows,
+                    scalar,
+                } => {
+                    if self.layouter[ty].size != columns as u32 * rows as u32 * scalar.width as u32
+                    {
+                        return Err(invalid("decoder matrices must not have column padding"));
+                    }
+                }
                 TypeInner::Array {
                     base,
                     size: crate::ArraySize::Constant(_),
-                    ..
-                } => types.push(base),
-                TypeInner::Struct { ref members, .. } => types.extend(members.iter().map(|m| m.ty)),
+                    stride,
+                } => {
+                    if stride != self.layouter[base].size {
+                        return Err(invalid("decoder arrays must not have element padding"));
+                    }
+                    types.push(base);
+                }
+                TypeInner::Struct { ref members, span } => {
+                    if members.last().is_none_or(|member| {
+                        member.offset.checked_add(self.layouter[member.ty].size) != Some(span)
+                    }) {
+                        return Err(invalid(
+                            "decoder structs must use explicit members for trailing padding",
+                        ));
+                    }
+                    types.extend(members.iter().map(|m| m.ty));
+                }
                 _ => {
                     return Err(invalid(
                         "block may only contain numeric values, fixed arrays, and structs",

@@ -111,6 +111,27 @@ fn block_dimensions_and_callback_signatures() {
 }
 
 #[test]
+fn padded_decoder_layouts_are_rejected() {
+    for source in [
+        SCALAR.replace("quant: array<u32, 8>", "@size(48) quant: array<u32, 8>"),
+        SCALAR.replace("scale: u32,\n", "@align(16) scale: u32,\n"),
+        SCALAR.replace("scale: u32,\n", "scale: u32,\n unused: array<vec3u, 2>,\n"),
+        SCALAR.replace("scale: u32,\n", "scale: u32,\n unused: mat2x3f,\n"),
+    ] {
+        let error = error(&source, Capabilities::all());
+        assert!(error.contains("Invalid cooperative callback"), "{error}");
+    }
+    let source = SCALAR.replace(
+        "quant: array<u32, 8>,",
+        "quant: array<u32, 8>, padding: array<u32, 3>,",
+    );
+    let module = naga::front::wgsl::parse_str(&source).unwrap();
+    Validator::new(ValidationFlags::all(), Capabilities::all())
+        .validate(&module)
+        .unwrap();
+}
+
+#[test]
 fn callbacks_are_pure_including_callees() {
     for body in [
         "c[0] = 1.0;",

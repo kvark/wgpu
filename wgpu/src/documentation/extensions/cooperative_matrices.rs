@@ -378,6 +378,10 @@ without `T` transposes the view. Block dimensions are positive constant `u32`
 values; strides count blocks, while dimensions and offsets count decoded elements.
 The storage array element may contain numeric values, fixed arrays, and structs.
 It must be sized and have alignment at most 16 bytes.
+The initial decoder ABI rejects implicit block-stride padding, trailing struct
+padding, array-element padding, and matrix-column padding: tensor decode addressing
+does not honor the storage array's `ArrayStride`. Use explicit numeric padding
+members when necessary.
 
 The scalar callback has signature `(block: Block, block_coordinate: vec2u,
 element_coordinate: vec2u) -> Component`. Coordinates are in tensor memory order;
