@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::vec;
 use core::iter;
 
 use spirv::{Op, Word, MAGIC_NUMBER};
@@ -6,7 +6,7 @@ use spirv::{Op, Word, MAGIC_NUMBER};
 use super::{Instruction, LogicalLayout, PhysicalLayout};
 
 #[cfg(test)]
-use alloc::format;
+use alloc::{format, vec::Vec};
 
 // https://github.com/KhronosGroup/SPIRV-Headers/pull/195
 const GENERATOR: Word = 28;
@@ -113,8 +113,8 @@ impl Instruction {
         self.wc += 1;
     }
 
-    pub(super) fn add_operands(&mut self, operands: Vec<Word>) {
-        for operand in operands.into_iter() {
+    pub(super) fn add_operands(&mut self, operands: impl IntoIterator<Item = Word>) {
+        for operand in operands {
             self.add_operand(operand)
         }
     }

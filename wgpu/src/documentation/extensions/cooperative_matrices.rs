@@ -336,6 +336,40 @@ If `saturating_accumulation` is true for the chosen configuration, then overflow
 is clamped (e.g. saturating arithmetic). If false, overflow behavior for the accumulator follows the
 underlying scalar type semantics (e.g. IEEE-754 for floats).
 
+### Naga embedding extensions: tensor addressing and conversions
+
+These operations are available to direct Naga embeddings, not through the `wgpu`
+feature above. They require SPIR-V 1.6 and separately enabled device features.
+There is no Metal, HLSL, or GLSL lowering.
+
+- `coopConvert<Matrix>(value)` converts `f16`/`f32` components while preserving
+  dimensions and scope. The role may stay unchanged or change from `C` to `A`/`B`.
+- `coopTranspose<Matrix>(value)` transposes `C` to `B`, preserving component type
+  and scope; the destination dimensions must be swapped.
+- `coopLoadTensorT<Matrix>(&buffer, dimensions, strides, offset)` loads a row-major
+  tile. The buffer is a storage array of the matrix's scalar type; dimensions and
+  strides are `vec2u`, and offset is `vec2i`.
+- `coopStoreTensorT(value, &buffer, dimensions, strides, offset)` stores a tile.
+  The variants without `T` transpose the tensor view, like the ordinary load/store
+  variants. Dimensions, strides, and offsets always describe outer/inner memory
+  order; strides are in scalar elements.
+
+Enable `COOPERATIVE_MATRIX_CONVERSIONS` and/or
+`COOPERATIVE_MATRIX_TENSOR_ADDRESSING` on the Naga validator, and the corresponding
+`cooperativeMatrixConversions` / `cooperativeMatrixTensorAddressing` device
+features from `VK_NV_cooperative_matrix2`. Tensor addressing also uses
+`SPV_NV_tensor_addressing`. Workgroup scope retains its separate capability.
+
+Tensor loads return zero outside the declared dimensions; out-of-tensor stores
+are discarded. These are **tensor bounds, not allocation bounds**. The embedding
+must guarantee a 16-byte aligned buffer base, sufficient allocation, non-overflowing
+address calculations, and valid tensor strides (positive inner stride and an
+outer stride large enough to cover a row). Naga does not establish these dynamic
+properties. Do not expose these capabilities to untrusted shaders without a
+separate safety boundary. Loads/stores require uniform layout operands and control
+flow within the matrix scope. Array pointers whose own access needs conditional
+buffer bounds checks are not currently supported by the SPIR-V backend.
+
 ### Workgroup cooperation and execution model
 
 Cooperative matrix operations are **collective**:

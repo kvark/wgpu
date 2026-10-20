@@ -2273,6 +2273,66 @@ impl BlockContext<'_> {
                         ),
                 }
             }
+            crate::Expression::CooperativeTensorLoad { ty, ref data } => {
+                let matrix_ty = self.ir_module.types[ty].inner.clone();
+                let (pointer, layout, view) =
+                    self.write_cooperative_tensor(data, &matrix_ty, block)?;
+                let id = self.gen_id();
+                let zero = self.writer.get_constant_null(result_type_id);
+                let mut instruction = Instruction::new(spirv::Op::CooperativeMatrixLoadTensorNV);
+                instruction.set_type(result_type_id);
+                instruction.set_result(id);
+                instruction.add_operands([pointer, zero, layout]);
+                self.finish_tensor_instruction(
+                    &mut instruction,
+                    data.pointer,
+                    AccessKind::Load,
+                    view,
+                );
+                block.body.push(instruction);
+                id
+            }
+            crate::Expression::CooperativeConvert {
+                ty,
+                source,
+                transpose,
+            } => {
+                if self.writer.lang_version() < (1, 6) {
+                    return Err(Error::SpirvVersionTooLow(1, 6));
+                }
+                self.writer.require_any(
+                    "cooperative matrix conversions",
+                    &[spirv::Capability::CooperativeMatrixConversionsNV],
+                )?;
+                self.writer.use_extension("SPV_NV_cooperative_matrix2");
+                let source_inner = self.fun_info[source].ty.inner_with(&self.ir_module.types);
+                let crate::TypeInner::CooperativeMatrix { scalar, .. } = *source_inner else {
+                    unreachable!()
+                };
+                let crate::TypeInner::CooperativeMatrix {
+                    scalar: dst_scalar, ..
+                } = self.ir_module.types[ty].inner
+                else {
+                    unreachable!()
+                };
+                let source_id = self.cached[source];
+                if !transpose && *source_inner == self.ir_module.types[ty].inner {
+                    source_id
+                } else {
+                    let op = if transpose {
+                        spirv::Op::CooperativeMatrixTransposeNV
+                    } else if scalar != dst_scalar {
+                        spirv::Op::FConvert
+                    } else {
+                        spirv::Op::CooperativeMatrixConvertNV
+                    };
+                    let id = self.gen_id();
+                    block
+                        .body
+                        .push(Instruction::unary(op, result_type_id, id, source_id));
+                    id
+                }
+            }
             crate::Expression::CooperativeMultiplyAdd { a, b, c } => {
                 self.writer.require_any(
                     "CooperativeMatrix",
@@ -2295,6 +2355,134 @@ impl BlockContext<'_> {
 
         self.cached[expr_handle] = id;
         Ok(())
+    }
+
+    fn write_cooperative_tensor(
+        &mut self,
+        data: &crate::CooperativeTensorData,
+        matrix_ty: &crate::TypeInner,
+        block: &mut Block,
+    ) -> Result<(Word, Word, Option<Word>), Error> {
+        if self.writer.lang_version() < (1, 6) {
+            return Err(Error::SpirvVersionTooLow(1, 6));
+        }
+        self.writer.require_any(
+            "tensor addressing",
+            &[spirv::Capability::TensorAddressingNV],
+        )?;
+        self.writer.require_any(
+            "cooperative tensor addressing",
+            &[spirv::Capability::CooperativeMatrixTensorAddressingNV],
+        )?;
+        self.writer.use_extension("SPV_NV_cooperative_matrix2");
+        self.writer.use_extension("SPV_NV_tensor_addressing");
+        let crate::TypeInner::CooperativeMatrix {
+            columns,
+            rows,
+            scalar,
+            ..
+        } = *matrix_ty
+        else {
+            unreachable!()
+        };
+        let pointer =
+            match self.write_access_chain(data.pointer, block, AccessTypeAdjustment::None)? {
+                ExpressionPointer::Ready { pointer_id } => pointer_id,
+                ExpressionPointer::Conditional { .. } => {
+                    return Err(Error::FeatureNotImplemented(
+                        "tensor access through a conditionally in-bounds array pointer",
+                    ))
+                }
+            };
+        let scalar_ty = self.get_numeric_type_id(NumericType::Scalar(scalar));
+        let pointer_ty = self.get_pointer_type_id(scalar_ty, spirv::StorageClass::StorageBuffer);
+        let element_pointer = self.gen_id();
+        let zero = self.get_index_constant(0);
+        block.body.push(Instruction::access_chain(
+            pointer_ty,
+            element_pointer,
+            pointer,
+            &[zero],
+        ));
+
+        let uint_ty = self.get_numeric_type_id(NumericType::Scalar(crate::Scalar::U32));
+        let int_ty = self.get_numeric_type_id(NumericType::Scalar(crate::Scalar::I32));
+        let mut components = [[0; 2]; 3];
+        for (ids, (operand, ty)) in components.iter_mut().zip([
+            (data.dimensions, uint_ty),
+            (data.strides, uint_ty),
+            (data.offset, int_ty),
+        ]) {
+            for (axis, component) in ids.iter_mut().enumerate() {
+                *component = self.gen_id();
+                block.body.push(Instruction::composite_extract(
+                    ty,
+                    *component,
+                    self.cached[operand],
+                    &[axis as u32],
+                ));
+            }
+        }
+        let layout_ty = self.get_type_id(LocalType::TensorLayout2d.into());
+        let mut layout = self.gen_id();
+        let mut create = Instruction::new(spirv::Op::CreateTensorLayoutNV);
+        create.set_type(layout_ty);
+        create.set_result(layout);
+        block.body.push(create);
+        let spans = if data.row_major {
+            [rows, columns]
+        } else {
+            [columns, rows]
+        };
+        let spans = spans.map(|span| self.get_index_constant(span));
+        for (op, operands) in [
+            (spirv::Op::TensorLayoutSetDimensionNV, &components[0][..]),
+            (spirv::Op::TensorLayoutSetStrideNV, &components[1][..]),
+            (
+                spirv::Op::TensorLayoutSliceNV,
+                &[components[2][0], spans[0], components[2][1], spans[1]][..],
+            ),
+        ] {
+            let id = self.gen_id();
+            let mut instruction = Instruction::new(op);
+            instruction.set_type(layout_ty);
+            instruction.set_result(id);
+            instruction.add_operand(layout);
+            instruction.add_operands(operands.iter().copied());
+            block.body.push(instruction);
+            layout = id;
+        }
+        let view = if data.row_major {
+            None
+        } else {
+            let ty = self.get_type_id(LocalType::TensorViewTranspose2d.into());
+            let id = self.gen_id();
+            let mut instruction = Instruction::new(spirv::Op::CreateTensorViewNV);
+            instruction.set_type(ty);
+            instruction.set_result(id);
+            block.body.push(instruction);
+            Some(id)
+        };
+        Ok((element_pointer, layout, view))
+    }
+
+    fn finish_tensor_instruction(
+        &mut self,
+        instruction: &mut Instruction,
+        pointer: Handle<crate::Expression>,
+        access: AccessKind,
+        view: Option<Word>,
+    ) {
+        let memory = self.coop_memory_operands(pointer, access);
+        if memory.is_none() {
+            instruction.add_operand(0);
+        } else {
+            instruction.add_memory_operands(memory);
+        }
+        instruction.add_operand(u32::from(view.is_some()));
+        if let Some(view) = view {
+            instruction.add_operand(view);
+        }
     }
 
     /// Helper which focuses on generating the `As` expressions and the various conversions
@@ -4304,6 +4492,24 @@ impl BlockContext<'_> {
                     result,
                 } => {
                     self.write_subgroup_gather(mode, argument, result, &mut block)?;
+                }
+                Statement::CooperativeTensorStore { target, ref data } => {
+                    let matrix_ty = self.fun_info[target]
+                        .ty
+                        .inner_with(&self.ir_module.types)
+                        .clone();
+                    let (pointer, layout, view) =
+                        self.write_cooperative_tensor(data, &matrix_ty, &mut block)?;
+                    let mut instruction =
+                        Instruction::new(spirv::Op::CooperativeMatrixStoreTensorNV);
+                    instruction.add_operands([pointer, self.cached[target], layout]);
+                    self.finish_tensor_instruction(
+                        &mut instruction,
+                        data.pointer,
+                        AccessKind::Store,
+                        view,
+                    );
+                    block.body.push(instruction);
                 }
                 Statement::CooperativeStore { target, ref data } => {
                     let target_id = self.cached[target];

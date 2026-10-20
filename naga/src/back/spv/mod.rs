@@ -530,6 +530,8 @@ enum LocalType {
     /// A numeric type.
     Numeric(NumericType),
     Cooperative(CooperativeType),
+    TensorLayout2d,
+    TensorViewTranspose2d,
     Pointer {
         base: Word,
         class: spirv::StorageClass,
@@ -1333,6 +1335,8 @@ pub fn supported_capabilities() -> crate::valid::Capabilities {
         | Caps::STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING
         | Caps::STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING
         | Caps::COOPERATIVE_MATRIX
+        | Caps::COOPERATIVE_MATRIX_CONVERSIONS
+        | Caps::COOPERATIVE_MATRIX_TENSOR_ADDRESSING
         | Caps::SHADER_BFLOAT16
         | Caps::COOPERATIVE_MATRIX_WORKGROUP
         | Caps::PER_VERTEX

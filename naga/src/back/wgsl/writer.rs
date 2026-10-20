@@ -343,6 +343,7 @@ impl<W: Write> Writer<W> {
                 | St::SubgroupGather { .. }
                 | St::SubgroupCollectiveOperation { .. }
                 | St::CooperativeStore { .. }
+                | St::CooperativeTensorStore { .. }
                 | St::DebugPrintf { .. } => false,
             })
         }
@@ -416,6 +417,7 @@ impl<W: Write> Writer<W> {
                     }
                 }
                 TypeInner::CooperativeMatrix { scalar, .. } => {
+                    needed.f16 |= scalar == crate::Scalar::F16;
                     needed.bfloat16 |= scalar == crate::Scalar::BF16;
                     needed.cooperative_matrix = true;
                 }
@@ -1291,6 +1293,16 @@ impl<W: Write> Writer<W> {
                 }
                 writeln!(self.out, ");")?;
             }
+            Statement::CooperativeTensorStore { target, ref data } => {
+                let suffix = if data.row_major { "T" } else { "" };
+                write!(self.out, "{level}coopStoreTensor{suffix}(")?;
+                self.write_expr(module, target, func_ctx)?;
+                for operand in data.operands() {
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, operand, func_ctx)?;
+                }
+                writeln!(self.out, ");")?;
+            }
             Statement::CooperativeStore { target, ref data } => {
                 let suffix = if data.row_major { "T" } else { "" };
                 write!(self.out, "{level}coopStore{suffix}(")?;
@@ -2085,6 +2097,35 @@ impl<W: Write> Writer<W> {
                 self.write_expr(module, data.pointer, func_ctx)?;
                 write!(self.out, ", ")?;
                 self.write_expr(module, data.stride, func_ctx)?;
+                write!(self.out, ")")?;
+            }
+            Expression::CooperativeTensorLoad { ty, ref data } => {
+                let suffix = if data.row_major { "T" } else { "" };
+                write!(self.out, "coopLoadTensor{suffix}<")?;
+                self.write_type(module, ty)?;
+                write!(self.out, ">(")?;
+                for (index, operand) in data.operands().into_iter().enumerate() {
+                    if index != 0 {
+                        write!(self.out, ", ")?;
+                    }
+                    self.write_expr(module, operand, func_ctx)?;
+                }
+                write!(self.out, ")")?;
+            }
+            Expression::CooperativeConvert {
+                ty,
+                source,
+                transpose,
+            } => {
+                let name = if transpose {
+                    "coopTranspose"
+                } else {
+                    "coopConvert"
+                };
+                write!(self.out, "{name}<")?;
+                self.write_type(module, ty)?;
+                write!(self.out, ">(")?;
+                self.write_expr(module, source, func_ctx)?;
                 write!(self.out, ")")?;
             }
             Expression::CooperativeMultiplyAdd { a, b, c } => {

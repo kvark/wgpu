@@ -2238,6 +2238,24 @@ impl Writer {
                 self.write_cooperative_type_declaration_local(id, coop);
                 return;
             }
+            LocalType::TensorLayout2d => {
+                let dimension = self.get_index_constant(2);
+                let clamp = self.get_index_constant(1);
+                let mut instruction = Instruction::new(spirv::Op::TypeTensorLayoutNV);
+                instruction.set_result(id);
+                instruction.add_operands([dimension, clamp]);
+                instruction
+            }
+            LocalType::TensorViewTranspose2d => {
+                let dimension = self.get_index_constant(2);
+                let has_dimensions = self.get_constant_scalar(crate::Literal::Bool(false));
+                let zero = self.get_index_constant(0);
+                let one = self.get_index_constant(1);
+                let mut instruction = Instruction::new(spirv::Op::TypeTensorViewNV);
+                instruction.set_result(id);
+                instruction.add_operands([dimension, has_dimensions, one, zero]);
+                instruction
+            }
             LocalType::Pointer { base, class } => Instruction::type_pointer(id, class, base),
             LocalType::Image(image) => {
                 let local_type = LocalType::Numeric(NumericType::Scalar(image.sampled_type));
