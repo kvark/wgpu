@@ -2288,7 +2288,9 @@ impl<'a, W: Write> Writer<'a, W> {
                 }
                 writeln!(self.out, ");")?;
             }
-            Statement::CooperativeStore { .. } => unimplemented!(),
+            Statement::CooperativeStore { .. } | Statement::CooperativeTensorStore { .. } => {
+                unimplemented!()
+            }
             Statement::RayPipelineFunction(_) => unimplemented!(),
             Statement::DebugPrintf { .. } => unimplemented!(),
         }
@@ -3876,6 +3878,8 @@ impl<'a, W: Write> Writer<'a, W> {
             Expression::RayQueryGetIntersection { .. }
             | Expression::RayQueryVertexPositions { .. }
             | Expression::CooperativeLoad { .. }
+            | Expression::CooperativeConvert { .. }
+            | Expression::CooperativeTensorLoad { .. }
             | Expression::CooperativeMultiplyAdd { .. } => unreachable!(),
         }
 

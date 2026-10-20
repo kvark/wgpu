@@ -152,6 +152,12 @@ impl FunctionTracer<'_> {
                         self.expressions_used.insert(argument);
                         self.expressions_used.insert(result);
                     }
+                    St::CooperativeTensorStore { target, ref data } => {
+                        self.expressions_used.insert(target);
+                        for operand in data.operands() {
+                            self.expressions_used.insert(operand);
+                        }
+                    }
                     St::CooperativeStore { target, ref data } => {
                         self.expressions_used.insert(target);
                         self.expressions_used.insert(data.pointer);
@@ -395,6 +401,13 @@ impl FunctionMap {
                         }
                         adjust(argument);
                         adjust(result);
+                    }
+                    St::CooperativeTensorStore {
+                        ref mut target,
+                        ref mut data,
+                    } => {
+                        adjust(target);
+                        data.adjust(adjust);
                     }
                     St::CooperativeStore {
                         ref mut target,

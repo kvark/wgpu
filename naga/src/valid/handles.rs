@@ -673,6 +673,14 @@ impl super::Validator {
             crate::Expression::CooperativeMultiplyAdd { a, b, c } => {
                 handle.check_dep(a)?.check_dep(b)?.check_dep(c)?;
             }
+            crate::Expression::CooperativeConvert { ty, source, .. } => {
+                validate_type(ty)?;
+                handle.check_dep(source)?;
+            }
+            crate::Expression::CooperativeTensorLoad { ty, ref data } => {
+                validate_type(ty)?;
+                handle.check_dep_iter(data.operands().into_iter())?;
+            }
         }
         Ok(())
     }
@@ -860,6 +868,13 @@ impl super::Validator {
                     crate::GatherMode::QuadSwap(_) => {}
                 }
                 validate_expr(result)?;
+                Ok(())
+            }
+            crate::Statement::CooperativeTensorStore { target, ref data } => {
+                validate_expr(target)?;
+                for operand in data.operands() {
+                    validate_expr(operand)?;
+                }
                 Ok(())
             }
             crate::Statement::CooperativeStore { target, ref data } => {

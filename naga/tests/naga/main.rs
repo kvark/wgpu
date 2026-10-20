@@ -1,5 +1,6 @@
 mod bf16;
 mod cooperative_store;
+mod cooperative_tensor;
 mod example_wgsl;
 mod snapshots;
 mod spirv_capabilities;

@@ -1490,6 +1490,80 @@ impl super::Validator {
                 }
                 ShaderStages::COMPUTE
             }
+            E::CooperativeTensorLoad { ty, ref data } => {
+                let Ti::CooperativeMatrix { scalar, .. } = module.types[ty].inner else {
+                    return Err(ExpressionError::InvalidCooperativeOperand(data.pointer));
+                };
+                self.validate_cooperative_tensor(
+                    data,
+                    scalar,
+                    &module.types,
+                    |handle| &resolver[handle],
+                    crate::StorageAccess::LOAD,
+                )?;
+                ShaderStages::COMPUTE
+            }
+            E::CooperativeConvert {
+                ty,
+                source,
+                transpose,
+            } => {
+                if !self
+                    .capabilities
+                    .contains(super::Capabilities::COOPERATIVE_MATRIX_CONVERSIONS)
+                {
+                    return Err(ExpressionError::MissingCapabilities(
+                        super::Capabilities::COOPERATIVE_MATRIX_CONVERSIONS,
+                    ));
+                }
+                let Ti::CooperativeMatrix {
+                    columns,
+                    rows,
+                    scalar,
+                    role,
+                    scope,
+                } = resolver[source]
+                else {
+                    return Err(ExpressionError::InvalidCooperativeOperand(source));
+                };
+                let Ti::CooperativeMatrix {
+                    columns: dst_columns,
+                    rows: dst_rows,
+                    scalar: dst_scalar,
+                    role: dst_role,
+                    scope: dst_scope,
+                } = module.types[ty].inner
+                else {
+                    return Err(ExpressionError::InvalidCooperativeOperand(source));
+                };
+                let valid_role = if transpose {
+                    role == crate::CooperativeRole::C
+                        && dst_role == crate::CooperativeRole::B
+                        && scalar == dst_scalar
+                } else {
+                    role == dst_role
+                        || (role == crate::CooperativeRole::C
+                            && matches!(
+                                dst_role,
+                                crate::CooperativeRole::A | crate::CooperativeRole::B
+                            ))
+                };
+                let (expected_columns, expected_rows) = if transpose {
+                    (rows, columns)
+                } else {
+                    (columns, rows)
+                };
+                if !valid_role
+                    || scope != dst_scope
+                    || dst_columns != expected_columns
+                    || dst_rows != expected_rows
+                    || scalar.kind != crate::ScalarKind::Float
+                    || dst_scalar.kind != crate::ScalarKind::Float
+                {
+                    return Err(ExpressionError::InvalidCooperativeOperand(source));
+                }
+                ShaderStages::COMPUTE
+            }
             E::CooperativeMultiplyAdd { a, b, c } => {
                 let operand = |operand, expected_role| match resolver[operand] {
                     Ti::CooperativeMatrix {
@@ -1562,6 +1636,61 @@ impl super::Validator {
             }
             _ => Err(ExpressionError::ExpectedGlobalVariable),
         }
+    }
+
+    pub(super) fn validate_cooperative_tensor<'a>(
+        &self,
+        data: &crate::CooperativeTensorData,
+        scalar: crate::Scalar,
+        types: &UniqueArena<crate::Type>,
+        resolve: impl Fn(Handle<crate::Expression>) -> &'a crate::TypeInner,
+        access: crate::StorageAccess,
+    ) -> Result<(), ExpressionError> {
+        use crate::TypeInner as Ti;
+        if !self
+            .capabilities
+            .contains(super::Capabilities::COOPERATIVE_MATRIX_TENSOR_ADDRESSING)
+        {
+            return Err(ExpressionError::MissingCapabilities(
+                super::Capabilities::COOPERATIVE_MATRIX_TENSOR_ADDRESSING,
+            ));
+        }
+        let Ti::Pointer {
+            base,
+            space: crate::AddressSpace::Storage { access: allowed },
+        } = *resolve(data.pointer)
+        else {
+            return Err(ExpressionError::InvalidPointerType(data.pointer));
+        };
+        let Ti::Array {
+            base: element,
+            stride,
+            ..
+        } = types[base].inner
+        else {
+            return Err(ExpressionError::InvalidPointerType(data.pointer));
+        };
+        if types[element].inner != Ti::Scalar(scalar)
+            || stride != u32::from(scalar.width)
+            || !allowed.contains(access)
+        {
+            return Err(ExpressionError::InvalidPointerType(data.pointer));
+        }
+        for (operand, scalar) in [
+            (data.dimensions, crate::Scalar::U32),
+            (data.strides, crate::Scalar::U32),
+            (data.offset, crate::Scalar::I32),
+        ] {
+            if *resolve(operand)
+                != (Ti::Vector {
+                    size: crate::VectorSize::Bi,
+                    scalar,
+                })
+            {
+                return Err(ExpressionError::InvalidVectorType(operand));
+            }
+        }
+        Ok(())
     }
 
     pub fn validate_literal(&self, literal: crate::Literal) -> Result<(), LiteralError> {

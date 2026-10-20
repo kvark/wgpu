@@ -45,6 +45,7 @@ pub fn ensure_block_returns(block: &mut crate::Block) {
             | S::ControlBarrier(_)
             | S::MemoryBarrier(_)
             | S::CooperativeStore { .. }
+            | S::CooperativeTensorStore { .. }
             | S::RayPipelineFunction(_)
             | S::DebugPrintf { .. }),
         )

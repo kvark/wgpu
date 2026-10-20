@@ -235,6 +235,11 @@ bitflags::bitflags! {
         const SHADER_BFLOAT16 = 1 << 47;
         /// Workgroup-scope cooperative matrices with flexible dimensions.
         const COOPERATIVE_MATRIX_WORKGROUP = 1 << 49;
+        /// Cooperative matrix component and accumulator-to-operand conversions.
+        const COOPERATIVE_MATRIX_CONVERSIONS = 1 << 50;
+        /// Tensor-addressed cooperative loads/stores. The embedding must enforce
+        /// the allocation/alignment contract of `CooperativeTensorData`.
+        const COOPERATIVE_MATRIX_TENSOR_ADDRESSING = 1 << 51;
     }
 }
 

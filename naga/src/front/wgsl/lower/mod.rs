@@ -3109,6 +3109,73 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
         }
     }
 
+    fn cooperative_extension<'phrase>(
+        &mut self,
+        name: &str,
+        arguments: &[Handle<ast::Expression<'source>>],
+        template_params: &mut TemplateListIter<'phrase, 'source>,
+        span: Span,
+        ctx: &mut ExpressionContext<'source, '_, '_>,
+    ) -> Result<'source, Option<(Handle<ir::Expression>, MustUse)>> {
+        let store = matches!(name, "coopStoreTensor" | "coopStoreTensorT");
+        let ty = if store {
+            None
+        } else {
+            let (ty, ty_span) = template_params.ty_with_span(self, ctx)?;
+            if !matches!(
+                ctx.module.types[ty].inner,
+                ir::TypeInner::CooperativeMatrix { .. }
+            ) {
+                return Err(Box::new(Error::InvalidCooperativeLoadType(ty_span)));
+            }
+            Some(ty)
+        };
+        let expr = if matches!(name, "coopConvert" | "coopTranspose") {
+            let mut args = ctx.prepare_args(arguments, 1, span);
+            let source = self.expression(args.next()?, ctx)?;
+            args.finish()?;
+            ir::Expression::CooperativeConvert {
+                ty: ty.unwrap(),
+                source,
+                transpose: name == "coopTranspose",
+            }
+        } else {
+            let mut args = ctx.prepare_args(arguments, if store { 5 } else { 4 }, span);
+            let target = if store {
+                Some(self.expression(args.next()?, ctx)?)
+            } else {
+                None
+            };
+            let pointer = self.expression(args.next()?, ctx)?;
+            let dimensions = self.expression(args.next()?, ctx)?;
+            let strides = self.expression(args.next()?, ctx)?;
+            let offset = self.expression(args.next()?, ctx)?;
+            args.finish()?;
+            let data = ir::CooperativeTensorData {
+                pointer,
+                dimensions,
+                strides,
+                offset,
+                row_major: name.ends_with('T'),
+            };
+            if let Some(target) = target {
+                let rctx = ctx.runtime_expression_ctx(span)?;
+                rctx.block
+                    .extend(rctx.emitter.finish(&rctx.function.expressions));
+                rctx.emitter.start(&rctx.function.expressions);
+                rctx.block
+                    .push(ir::Statement::CooperativeTensorStore { target, data }, span);
+                return Ok(None);
+            }
+            ir::Expression::CooperativeTensorLoad {
+                ty: ty.unwrap(),
+                data,
+            }
+        };
+        let expr = ctx.append_expression(expr, span)?;
+        Ok(Some((expr, MustUse::Yes)))
+    }
+
     /// Generate Naga IR for a call to a WGSL builtin function.
     #[allow(clippy::too_many_arguments)]
     fn call_builtin<'phrase>(
@@ -3121,6 +3188,23 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
         ctx: &mut ExpressionContext<'source, '_, '_>,
         is_statement: bool,
     ) -> Result<'source, Option<(Handle<ir::Expression>, MustUse)>> {
+        if matches!(
+            function_name,
+            "coopLoadTensor"
+                | "coopLoadTensorT"
+                | "coopStoreTensor"
+                | "coopStoreTensorT"
+                | "coopConvert"
+                | "coopTranspose"
+        ) {
+            return self.cooperative_extension(
+                function_name,
+                arguments,
+                template_params,
+                call_span,
+                ctx,
+            );
+        }
         let (expr, must_use) = if let Some(fun) = conv::map_relational_fun(function_name) {
             let mut args = ctx.prepare_args(arguments, 1, function_span);
             let argument = self.expression(args.next()?, ctx)?;

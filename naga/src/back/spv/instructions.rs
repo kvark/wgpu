@@ -494,7 +494,7 @@ impl super::Instruction {
         instruction
     }
 
-    fn add_memory_operands(&mut self, memory_operands: Option<super::MemoryOperands>) {
+    pub(super) fn add_memory_operands(&mut self, memory_operands: Option<super::MemoryOperands>) {
         if let Some(operands) = memory_operands {
             self.add_operand(operands.access.bits());
             if let Some(scope_id) = operands.scope_id {
