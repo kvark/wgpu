@@ -3109,6 +3109,25 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
         }
     }
 
+    fn cooperative_callback(
+        &self,
+        expr: Handle<ast::Expression<'source>>,
+        ctx: &ExpressionContext<'source, '_, '_>,
+    ) -> Result<'source, Handle<ir::Function>> {
+        let span = ctx.ast_expressions.get_span(expr);
+        if let ast::Expression::Ident(ref ident) = ctx.ast_expressions[expr] {
+            if let ast::IdentExpr::Unresolved(name) = ident.ident {
+                if ident.template_list.is_empty() {
+                    if let Some(&LoweredGlobalDecl::Function { handle, .. }) = ctx.globals.get(name)
+                    {
+                        return Ok(handle);
+                    }
+                }
+            }
+        }
+        Err(Box::new(Error::Unexpected(span, ExpectedToken::Function)))
+    }
+
     fn cooperative_extension<'phrase>(
         &mut self,
         name: &str,
@@ -3130,6 +3149,15 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
             }
             Some(ty)
         };
+        let block_load = matches!(name, "coopLoadTensorBlock" | "coopLoadTensorBlockT");
+        let block_size = if block_load {
+            [
+                template_params.u32(self, ctx)?,
+                template_params.u32(self, ctx)?,
+            ]
+        } else {
+            [1, 1]
+        };
         let expr = if matches!(name, "coopConvert" | "coopTranspose") {
             let mut args = ctx.prepare_args(arguments, 1, span);
             let source = self.expression(args.next()?, ctx)?;
@@ -3140,7 +3168,8 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                 transpose: name == "coopTranspose",
             }
         } else {
-            let mut args = ctx.prepare_args(arguments, if store { 5 } else { 4 }, span);
+            let mut args =
+                ctx.prepare_args(arguments, if store || block_load { 5 } else { 4 }, span);
             let target = if store {
                 Some(self.expression(args.next()?, ctx)?)
             } else {
@@ -3150,6 +3179,21 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
             let dimensions = self.expression(args.next()?, ctx)?;
             let strides = self.expression(args.next()?, ctx)?;
             let offset = self.expression(args.next()?, ctx)?;
+            let decode = if block_load {
+                let function = self.cooperative_callback(args.next()?, ctx)?;
+                let vector_function = if args.total_args > 5 {
+                    Some(self.cooperative_callback(args.next()?, ctx)?)
+                } else {
+                    None
+                };
+                Some(ir::CooperativeTensorDecode {
+                    block_size,
+                    function,
+                    vector_function,
+                })
+            } else {
+                None
+            };
             args.finish()?;
             let data = ir::CooperativeTensorData {
                 pointer,
@@ -3170,6 +3214,7 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
             ir::Expression::CooperativeTensorLoad {
                 ty: ty.unwrap(),
                 data,
+                decode,
             }
         };
         let expr = ctx.append_expression(expr, span)?;
@@ -3192,6 +3237,8 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
             function_name,
             "coopLoadTensor"
                 | "coopLoadTensorT"
+                | "coopLoadTensorBlock"
+                | "coopLoadTensorBlockT"
                 | "coopStoreTensor"
                 | "coopStoreTensorT"
                 | "coopConvert"

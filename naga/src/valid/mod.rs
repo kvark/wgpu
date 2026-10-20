@@ -4,6 +4,7 @@ Shader validator.
 
 mod analyzer;
 mod compose;
+mod cooperative;
 mod expression;
 mod function;
 mod handles;
@@ -240,6 +241,10 @@ bitflags::bitflags! {
         /// Tensor-addressed cooperative loads/stores. The embedding must enforce
         /// the allocation/alignment contract of `CooperativeTensorData`.
         const COOPERATIVE_MATRIX_TENSOR_ADDRESSING = 1 << 51;
+        /// Tensor block decoding through pure callbacks and physical storage pointers.
+        const COOPERATIVE_MATRIX_BLOCK_LOADS = 1 << 52;
+        /// Optional vector block-decoding callbacks.
+        const COOPERATIVE_MATRIX_DECODE_VECTOR = 1 << 53;
     }
 }
 

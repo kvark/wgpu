@@ -1,0 +1,330 @@
+; SPIR-V
+; Version: 1.6
+; Generator: rspirv
+; Bound: 247
+OpCapability Shader
+OpCapability VulkanMemoryModel
+OpCapability Float16
+OpCapability StorageBuffer16BitAccess
+OpCapability UniformAndStorageBuffer16BitAccess
+OpCapability StorageInputOutput16
+OpCapability CooperativeMatrixKHR
+OpCapability CooperativeMatrixBlockLoadsNV
+OpCapability PhysicalStorageBufferAddresses
+OpCapability TensorAddressingNV
+OpCapability CooperativeMatrixTensorAddressingNV
+OpExtension "SPV_NV_cooperative_matrix2"
+OpExtension "SPV_KHR_vulkan_memory_model"
+OpExtension "SPV_KHR_16bit_storage"
+OpExtension "SPV_KHR_cooperative_matrix"
+OpExtension "SPV_KHR_physical_storage_buffer"
+OpExtension "SPV_NV_tensor_addressing"
+%1 = OpExtInstImport "GLSL.std.450"
+OpMemoryModel PhysicalStorageBuffer64 Vulkan
+OpEntryPoint GLCompute %113 "main" %110 %25 %28 %31 %34
+OpExecutionMode %113 LocalSize 128 1 1
+OpDecorate %4 ArrayStride 4
+OpMemberDecorate %6 0 Offset 0
+OpMemberDecorate %6 1 Offset 4
+OpDecorate %8 ArrayStride 2
+OpDecorate %9 ArrayStride 36
+OpDecorate %11 ArrayStride 4
+OpMemberDecorate %12 0 Offset 0
+OpMemberDecorate %12 1 Offset 4
+OpMemberDecorate %12 2 Offset 8
+OpDecorate %25 NonWritable
+OpDecorate %25 DescriptorSet 0
+OpDecorate %25 Binding 0
+OpDecorate %26 Block
+OpMemberDecorate %26 0 Offset 0
+OpDecorate %28 NonWritable
+OpDecorate %28 DescriptorSet 0
+OpDecorate %28 Binding 1
+OpDecorate %29 Block
+OpMemberDecorate %29 0 Offset 0
+OpDecorate %31 DescriptorSet 0
+OpDecorate %31 Binding 2
+OpDecorate %32 Block
+OpMemberDecorate %32 0 Offset 0
+OpDecorate %35 Block
+OpMemberDecorate %35 0 Offset 0
+OpDecorate %97 Aliased
+OpDecorate %110 BuiltIn WorkgroupId
+%2 = OpTypeVoid
+%3 = OpTypeInt 32 0
+%5 = OpConstant  %3  8
+%4 = OpTypeArray %3 %5
+%6 = OpTypeStruct %3 %4
+%7 = OpTypeFloat 16
+%8 = OpTypeRuntimeArray %7
+%9 = OpTypeRuntimeArray %6
+%10 = OpTypeFloat 32
+%11 = OpTypeRuntimeArray %10
+%12 = OpTypeStruct %3 %3 %3
+%13 = OpTypeInt 32 1
+%14 = OpTypeVector %3 2
+%15 = OpTypeVector %3 3
+%17 = OpConstant  %3  2
+%18 = OpConstant  %3  64
+%16 = OpTypeCooperativeMatrixKHR %10 %17 %18 %18 %17
+%20 = OpConstant  %3  32
+%21 = OpConstant  %3  0
+%19 = OpTypeCooperativeMatrixKHR %7 %17 %18 %20 %21
+%22 = OpTypeVector %13 2
+%24 = OpConstant  %3  1
+%23 = OpTypeCooperativeMatrixKHR %7 %17 %20 %18 %24
+%26 = OpTypeStruct %8
+%27 = OpTypePointer StorageBuffer %26
+%25 = OpVariable  %27  StorageBuffer
+%29 = OpTypeStruct %9
+%30 = OpTypePointer StorageBuffer %29
+%28 = OpVariable  %30  StorageBuffer
+%32 = OpTypeStruct %11
+%33 = OpTypePointer StorageBuffer %32
+%31 = OpVariable  %33  StorageBuffer
+%35 = OpTypeStruct %12
+%36 = OpTypePointer PushConstant %35
+%34 = OpVariable  %36  PushConstant
+%41 = OpTypeFunction %7 %13 %3
+%44 = OpTypeVector %10 2
+%50 = OpTypeFunction %3 %3 %3
+%54 = OpTypeBool
+%70 = OpTypeFunction %7 %6 %14 %14
+%71 = OpConstant  %3  4
+%76 = OpTypeArray %3 %5
+%77 = OpTypePointer Function %76
+%80 = OpTypePointer Function %3
+%94 = OpTypePointer PhysicalStorageBuffer %6
+%95 = OpTypeArray %3 %17
+%96 = OpTypeFunction %7 %94 %95 %95
+%111 = OpTypePointer Input %15
+%110 = OpVariable  %111  Input
+%114 = OpTypeFunction %2
+%115 = OpTypePointer StorageBuffer %8
+%117 = OpTypePointer StorageBuffer %9
+%119 = OpTypePointer StorageBuffer %11
+%121 = OpTypePointer PushConstant %12
+%123 = OpConstantNull  %16
+%124 = OpConstant  %3  31
+%126 = OpTypePointer Function %16
+%139 = OpTypePointer Function %14
+%140 = OpTypeVector %54 2
+%141 = OpConstantComposite  %14  %21 %21
+%142 = OpConstant  %3  4294967295
+%143 = OpConstantComposite  %14  %142 %142
+%156 = OpTypePointer PushConstant %3
+%175 = OpTypePointer StorageBuffer %7
+%183 = OpTypeTensorLayoutNV %17 %24
+%189 = OpConstantNull  %19
+%203 = OpTypePointer StorageBuffer %6
+%217 = OpConstantFalse  %54
+%216 = OpTypeTensorViewNV %17 %217 %24 %21
+%220 = OpConstantNull  %23
+%235 = OpTypePointer StorageBuffer %10
+%40 = OpFunction  %7  None %41
+%38 = OpFunctionParameter  %13
+%39 = OpFunctionParameter  %3
+%37 = OpLabel
+OpBranch %42
+%42 = OpLabel
+%43 = OpConvertSToF  %10  %38
+%45 = OpExtInst  %44  %1 UnpackHalf2x16 %39
+%46 = OpCompositeExtract  %10  %45 0
+%47 = OpFMul  %10  %43 %46
+%48 = OpFConvert  %7  %47
+OpReturnValue %48
+OpFunctionEnd
+%49 = OpFunction  %3  None %50
+%51 = OpFunctionParameter  %3
+%52 = OpFunctionParameter  %3
+%53 = OpLabel
+%55 = OpIEqual  %54  %52 %21
+%56 = OpSelect  %3  %55 %24 %52
+%57 = OpUDiv  %3  %51 %56
+OpReturnValue %57
+OpFunctionEnd
+%58 = OpFunction  %3  None %50
+%59 = OpFunctionParameter  %3
+%60 = OpFunctionParameter  %3
+%61 = OpLabel
+%62 = OpIEqual  %54  %60 %21
+%63 = OpSelect  %3  %62 %24 %60
+%64 = OpUMod  %3  %59 %63
+OpReturnValue %64
+OpFunctionEnd
+%69 = OpFunction  %7  None %70
+%66 = OpFunctionParameter  %6
+%67 = OpFunctionParameter  %14
+%68 = OpFunctionParameter  %14
+%65 = OpLabel
+%78 = OpVariable  %77  Function
+OpBranch %72
+%72 = OpLabel
+%73 = OpCompositeExtract  %4  %66 1
+%74 = OpCompositeExtract  %3  %68 1
+%75 = OpFunctionCall  %3  %49 %74 %71
+%79 = OpCopyLogical  %76  %73
+OpStore %78 %79
+%81 = OpAccessChain  %80  %78 %75
+%82 = OpLoad  %3  %81
+%83 = OpBitcast  %13  %82
+%84 = OpCompositeExtract  %3  %68 1
+%85 = OpFunctionCall  %3  %58 %84 %71
+%86 = OpIMul  %3  %85 %5
+%88 = OpExtInst  %3  %1 UMin %86 %20
+%89 = OpISub  %3  %20 %88
+%90 = OpExtInst  %3  %1 UMin %5 %89
+%87 = OpBitFieldSExtract  %13  %83 %88 %90
+%91 = OpCompositeExtract  %3  %66 0
+%92 = OpFunctionCall  %7  %40 %87 %91
+OpReturnValue %92
+OpFunctionEnd
+%93 = OpFunction  %7  None %96
+%97 = OpFunctionParameter  %94
+%98 = OpFunctionParameter  %95
+%99 = OpFunctionParameter  %95
+%100 = OpLabel
+%101 = OpLoad  %6  %97 Aligned 4
+%102 = OpCompositeExtract  %3  %98 0
+%103 = OpCompositeExtract  %3  %98 1
+%104 = OpCompositeConstruct  %14  %102 %103
+%105 = OpCompositeExtract  %3  %99 0
+%106 = OpCompositeExtract  %3  %99 1
+%107 = OpCompositeConstruct  %14  %105 %106
+%108 = OpFunctionCall  %7  %69 %101 %104 %107
+OpReturnValue %108
+OpFunctionEnd
+%113 = OpFunction  %2  None %114
+%109 = OpLabel
+%125 = OpVariable  %126  Function %123
+%127 = OpVariable  %80  Function %21
+%144 = OpVariable  %139  Function %143
+%112 = OpLoad  %15  %110
+%116 = OpAccessChain  %115  %25 %21
+%118 = OpAccessChain  %117  %28 %21
+%120 = OpAccessChain  %119  %31 %21
+%122 = OpAccessChain  %121  %34 %21
+OpBranch %128
+%128 = OpLabel
+%129 = OpCompositeExtract  %3  %112 0
+%130 = OpIMul  %3  %129 %18
+%131 = OpBitcast  %13  %130
+%132 = OpCompositeExtract  %3  %112 1
+%133 = OpIMul  %3  %132 %18
+%134 = OpBitcast  %13  %133
+OpBranch %135
+%135 = OpLabel
+OpLoopMerge %136 %138 None
+OpBranch %145
+%145 = OpLabel
+%146 = OpLoad  %14  %144
+%147 = OpIEqual  %140  %141 %146
+%148 = OpAll  %54  %147
+OpSelectionMerge %149 None
+OpBranchConditional %148 %136 %149
+%149 = OpLabel
+%150 = OpCompositeExtract  %3  %146 1
+%151 = OpIEqual  %54  %150 %21
+%152 = OpSelect  %3  %151 %24 %21
+%153 = OpCompositeConstruct  %14  %152 %24
+%154 = OpISub  %14  %146 %153
+OpStore %144 %154
+OpBranch %137
+%137 = OpLabel
+%155 = OpLoad  %3  %127
+%157 = OpAccessChain  %156  %122 %17
+%158 = OpLoad  %3  %157
+%159 = OpULessThan  %54  %155 %158
+OpSelectionMerge %160 None
+OpBranchConditional %159 %160 %161
+%161 = OpLabel
+OpBranch %136
+%160 = OpLabel
+OpBranch %162
+%162 = OpLabel
+%164 = OpAccessChain  %156  %122 %21
+%165 = OpLoad  %3  %164
+%166 = OpAccessChain  %156  %122 %17
+%167 = OpLoad  %3  %166
+%168 = OpCompositeConstruct  %14  %165 %167
+%169 = OpAccessChain  %156  %122 %17
+%170 = OpLoad  %3  %169
+%171 = OpCompositeConstruct  %14  %170 %24
+%172 = OpLoad  %3  %127
+%173 = OpBitcast  %13  %172
+%174 = OpCompositeConstruct  %22  %131 %173
+%176 = OpAccessChain  %175  %116 %21
+%177 = OpCompositeExtract  %3  %168 0
+%178 = OpCompositeExtract  %3  %168 1
+%179 = OpCompositeExtract  %3  %171 0
+%180 = OpCompositeExtract  %3  %171 1
+%181 = OpCompositeExtract  %13  %174 0
+%182 = OpCompositeExtract  %13  %174 1
+%184 = OpCreateTensorLayoutNV  %183
+%185 = OpTensorLayoutSetDimensionNV  %183  %184 %177 %178
+%186 = OpTensorLayoutSetStrideNV  %183  %185 %179 %180
+%187 = OpTensorLayoutSliceNV  %183  %186 %181 %18 %182 %20
+%188 = OpCooperativeMatrixLoadTensorNV  %19  %176 %189 %187 None None
+%190 = OpAccessChain  %156  %122 %24
+%191 = OpLoad  %3  %190
+%192 = OpAccessChain  %156  %122 %17
+%193 = OpLoad  %3  %192
+%194 = OpCompositeConstruct  %14  %191 %193
+%195 = OpAccessChain  %156  %122 %17
+%196 = OpLoad  %3  %195
+%197 = OpIAdd  %3  %196 %124
+%198 = OpFunctionCall  %3  %49 %197 %20
+%199 = OpCompositeConstruct  %14  %198 %24
+%200 = OpLoad  %3  %127
+%201 = OpBitcast  %13  %200
+%202 = OpCompositeConstruct  %22  %134 %201
+%204 = OpAccessChain  %203  %118 %21
+%205 = OpCompositeExtract  %3  %194 0
+%206 = OpCompositeExtract  %3  %194 1
+%207 = OpCompositeExtract  %3  %199 0
+%208 = OpCompositeExtract  %3  %199 1
+%209 = OpCompositeExtract  %13  %202 0
+%210 = OpCompositeExtract  %13  %202 1
+%211 = OpCreateTensorLayoutNV  %183
+%212 = OpTensorLayoutSetBlockSizeNV  %183  %211 %24 %20
+%213 = OpTensorLayoutSetDimensionNV  %183  %212 %205 %206
+%214 = OpTensorLayoutSetStrideNV  %183  %213 %207 %208
+%215 = OpTensorLayoutSliceNV  %183  %214 %209 %18 %210 %20
+%218 = OpCreateTensorViewNV  %216
+%219 = OpCooperativeMatrixLoadTensorNV  %23  %204 %220 %215 None TensorView|DecodeFunc %218 %93
+%221 = OpLoad  %16  %125
+%222 = OpCooperativeMatrixMulAddKHR  %16  %188 %219 %221
+OpStore %125 %222
+OpBranch %163
+%163 = OpLabel
+OpBranch %138
+%138 = OpLabel
+%223 = OpLoad  %3  %127
+%224 = OpIAdd  %3  %223 %20
+OpStore %127 %224
+OpBranch %135
+%136 = OpLabel
+%225 = OpLoad  %16  %125
+%226 = OpAccessChain  %156  %122 %21
+%227 = OpLoad  %3  %226
+%228 = OpAccessChain  %156  %122 %24
+%229 = OpLoad  %3  %228
+%230 = OpCompositeConstruct  %14  %227 %229
+%231 = OpAccessChain  %156  %122 %24
+%232 = OpLoad  %3  %231
+%233 = OpCompositeConstruct  %14  %232 %24
+%234 = OpCompositeConstruct  %22  %131 %134
+%236 = OpAccessChain  %235  %120 %21
+%237 = OpCompositeExtract  %3  %230 0
+%238 = OpCompositeExtract  %3  %230 1
+%239 = OpCompositeExtract  %3  %233 0
+%240 = OpCompositeExtract  %3  %233 1
+%241 = OpCompositeExtract  %13  %234 0
+%242 = OpCompositeExtract  %13  %234 1
+%243 = OpCreateTensorLayoutNV  %183
+%244 = OpTensorLayoutSetDimensionNV  %183  %243 %237 %238
+%245 = OpTensorLayoutSetStrideNV  %183  %244 %239 %240
+%246 = OpTensorLayoutSliceNV  %183  %245 %241 %18 %242 %18
+OpCooperativeMatrixStoreTensorNV %236 %225 %246 NonPrivatePointer None
+OpReturn
+OpFunctionEnd

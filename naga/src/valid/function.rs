@@ -1695,7 +1695,7 @@ impl super::Validator {
                     }
                     self.validate_cooperative_tensor(
                         data,
-                        scalar,
+                        Some(scalar),
                         context.types,
                         |handle| context.info[handle].ty.inner_with(context.types),
                         crate::StorageAccess::STORE,

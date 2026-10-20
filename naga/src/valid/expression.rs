@@ -12,6 +12,11 @@ use alloc::boxed::Box;
 #[derive(Clone, Debug, thiserror::Error)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum ExpressionError {
+    #[error("Invalid cooperative callback {function:?}: {reason}")]
+    InvalidCooperativeCallback {
+        function: Handle<crate::Function>,
+        reason: &'static str,
+    },
     #[error("Used by a statement before it was introduced into the scope by any of the dominating blocks")]
     NotInScope,
     #[error("Base type {0:?} is not compatible with this expression")]
@@ -1490,17 +1495,24 @@ impl super::Validator {
                 }
                 ShaderStages::COMPUTE
             }
-            E::CooperativeTensorLoad { ty, ref data } => {
+            E::CooperativeTensorLoad {
+                ty,
+                ref data,
+                ref decode,
+            } => {
                 let Ti::CooperativeMatrix { scalar, .. } = module.types[ty].inner else {
                     return Err(ExpressionError::InvalidCooperativeOperand(data.pointer));
                 };
-                self.validate_cooperative_tensor(
+                let element = self.validate_cooperative_tensor(
                     data,
-                    scalar,
+                    if decode.is_some() { None } else { Some(scalar) },
                     &module.types,
                     |handle| &resolver[handle],
                     crate::StorageAccess::LOAD,
                 )?;
+                if let Some(ref decode) = *decode {
+                    self.validate_tensor_decode(decode, element, scalar, module, mod_info)?;
+                }
                 ShaderStages::COMPUTE
             }
             E::CooperativeConvert {
@@ -1641,11 +1653,11 @@ impl super::Validator {
     pub(super) fn validate_cooperative_tensor<'a>(
         &self,
         data: &crate::CooperativeTensorData,
-        scalar: crate::Scalar,
+        scalar: Option<crate::Scalar>,
         types: &UniqueArena<crate::Type>,
         resolve: impl Fn(Handle<crate::Expression>) -> &'a crate::TypeInner,
         access: crate::StorageAccess,
-    ) -> Result<(), ExpressionError> {
+    ) -> Result<Handle<crate::Type>, ExpressionError> {
         use crate::TypeInner as Ti;
         if !self
             .capabilities
@@ -1670,8 +1682,8 @@ impl super::Validator {
         else {
             return Err(ExpressionError::InvalidPointerType(data.pointer));
         };
-        if types[element].inner != Ti::Scalar(scalar)
-            || stride != u32::from(scalar.width)
+        if scalar.is_some_and(|scalar| types[element].inner != Ti::Scalar(scalar))
+            || stride != self.layouter[element].to_stride()
             || !allowed.contains(access)
         {
             return Err(ExpressionError::InvalidPointerType(data.pointer));
@@ -1690,7 +1702,7 @@ impl super::Validator {
                 return Err(ExpressionError::InvalidVectorType(operand));
             }
         }
-        Ok(())
+        Ok(element)
     }
 
     pub fn validate_literal(&self, literal: crate::Literal) -> Result<(), LiteralError> {

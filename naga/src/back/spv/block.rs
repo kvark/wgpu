@@ -925,7 +925,7 @@ impl BlockContext<'_> {
                                 // can do is spill the value to a new temporary variable,
                                 // at which point we can get a pointer to that and just
                                 // use `OpAccessChain` in the usual way.
-                                self.spill_to_internal_variable(base, block);
+                                self.spill_to_internal_variable(base, block)?;
 
                                 // Since the base was spilled, mark this access to it as
                                 // spilled, too.
@@ -2273,10 +2273,14 @@ impl BlockContext<'_> {
                         ),
                 }
             }
-            crate::Expression::CooperativeTensorLoad { ty, ref data } => {
+            crate::Expression::CooperativeTensorLoad {
+                ty,
+                ref data,
+                ref decode,
+            } => {
                 let matrix_ty = self.ir_module.types[ty].inner.clone();
                 let (pointer, layout, view) =
-                    self.write_cooperative_tensor(data, &matrix_ty, block)?;
+                    self.write_cooperative_tensor(data, &matrix_ty, decode.as_ref(), block)?;
                 let id = self.gen_id();
                 let zero = self.writer.get_constant_null(result_type_id);
                 let mut instruction = Instruction::new(spirv::Op::CooperativeMatrixLoadTensorNV);
@@ -2288,6 +2292,7 @@ impl BlockContext<'_> {
                     data.pointer,
                     AccessKind::Load,
                     view,
+                    decode.as_ref(),
                 );
                 block.body.push(instruction);
                 id
@@ -2361,6 +2366,7 @@ impl BlockContext<'_> {
         &mut self,
         data: &crate::CooperativeTensorData,
         matrix_ty: &crate::TypeInner,
+        decode: Option<&crate::CooperativeTensorDecode>,
         block: &mut Block,
     ) -> Result<(Word, Word, Option<Word>), Error> {
         if self.writer.lang_version() < (1, 6) {
@@ -2376,13 +2382,7 @@ impl BlockContext<'_> {
         )?;
         self.writer.use_extension("SPV_NV_cooperative_matrix2");
         self.writer.use_extension("SPV_NV_tensor_addressing");
-        let crate::TypeInner::CooperativeMatrix {
-            columns,
-            rows,
-            scalar,
-            ..
-        } = *matrix_ty
-        else {
+        let crate::TypeInner::CooperativeMatrix { columns, rows, .. } = *matrix_ty else {
             unreachable!()
         };
         let pointer =
@@ -2394,8 +2394,17 @@ impl BlockContext<'_> {
                     ))
                 }
             };
-        let scalar_ty = self.get_numeric_type_id(NumericType::Scalar(scalar));
-        let pointer_ty = self.get_pointer_type_id(scalar_ty, spirv::StorageClass::StorageBuffer);
+        let crate::TypeInner::Pointer { base, .. } = *self.fun_info[data.pointer]
+            .ty
+            .inner_with(&self.ir_module.types)
+        else {
+            unreachable!()
+        };
+        let crate::TypeInner::Array { base: element, .. } = self.ir_module.types[base].inner else {
+            unreachable!()
+        };
+        let element_ty = self.get_type_id(LookupType::Handle(element));
+        let pointer_ty = self.get_pointer_type_id(element_ty, spirv::StorageClass::StorageBuffer);
         let element_pointer = self.gen_id();
         let zero = self.get_index_constant(0);
         block.body.push(Instruction::access_chain(
@@ -2429,6 +2438,19 @@ impl BlockContext<'_> {
         create.set_type(layout_ty);
         create.set_result(layout);
         block.body.push(create);
+        if let Some(decode) = decode {
+            let id = self.gen_id();
+            let mut instruction = Instruction::new(spirv::Op::TensorLayoutSetBlockSizeNV);
+            instruction.set_type(layout_ty);
+            instruction.set_result(id);
+            instruction.add_operand(layout);
+            for size in decode.block_size {
+                let size = self.get_index_constant(size);
+                instruction.add_operand(size);
+            }
+            block.body.push(instruction);
+            layout = id;
+        }
         let spans = if data.row_major {
             [rows, columns]
         } else {
@@ -2472,6 +2494,7 @@ impl BlockContext<'_> {
         pointer: Handle<crate::Expression>,
         access: AccessKind,
         view: Option<Word>,
+        decode: Option<&crate::CooperativeTensorDecode>,
     ) {
         let memory = self.coop_memory_operands(pointer, access);
         if memory.is_none() {
@@ -2479,9 +2502,24 @@ impl BlockContext<'_> {
         } else {
             instruction.add_memory_operands(memory);
         }
-        instruction.add_operand(u32::from(view.is_some()));
+        instruction.add_operand(
+            u32::from(view.is_some())
+                | if decode.is_some() { 2 } else { 0 }
+                | if decode.is_some_and(|decode| decode.vector_function.is_some()) {
+                    4
+                } else {
+                    0
+                },
+        );
         if let Some(view) = view {
             instruction.add_operand(view);
+        }
+        if let Some(decode) = decode {
+            for function in core::iter::once(decode.function).chain(decode.vector_function) {
+                instruction.add_operand(
+                    self.writer.wrapped_functions[&WrappedFunction::CooperativeDecode(function)],
+                );
+            }
         }
     }
 
@@ -3053,7 +3091,12 @@ impl BlockContext<'_> {
         }
     }
 
-    fn copy_logical(&mut self, value_id: Word, result_type_id: Word, block: &mut Block) -> Word {
+    pub(super) fn copy_logical(
+        &mut self,
+        value_id: Word,
+        result_type_id: Word,
+        block: &mut Block,
+    ) -> Word {
         let result_id = self.gen_id();
         block.body.push(Instruction::unary(
             spirv::Op::CopyLogical,
@@ -3138,6 +3181,14 @@ impl BlockContext<'_> {
                     workgroup_load_type_id = self.layoutless_workgroup_type_id(pointer_base_type);
                 }
             };
+            if matches!(
+                access_type_adjustment,
+                AccessTypeAdjustment::IntroducePointer(spirv::StorageClass::Function)
+            ) {
+                if let crate::proc::TypeResolution::Handle(ty) = self.fun_info[pointer].ty {
+                    workgroup_load_type_id = self.layoutless_workgroup_type_id(ty);
+                }
+            }
 
             let (load_type_id, access_type_adjustment) =
                 match (wrapped_load.as_ref(), workgroup_load_type_id) {
@@ -3230,9 +3281,15 @@ impl BlockContext<'_> {
         }
     }
 
-    fn spill_to_internal_variable(&mut self, base: Handle<crate::Expression>, block: &mut Block) {
+    fn spill_to_internal_variable(
+        &mut self,
+        base: Handle<crate::Expression>,
+        block: &mut Block,
+    ) -> Result<(), Error> {
         use indexmap::map::Entry;
 
+        self.writer
+            .prepare_spill_type(&self.fun_info[base].ty, self.ir_module)?;
         // Make sure we have an internal variable to spill `base` to.
         let spill_variable_id = match self.function.spilled_composites.entry(base) {
             Entry::Occupied(preexisting) => preexisting.get().id,
@@ -3281,10 +3338,16 @@ impl BlockContext<'_> {
         // variable for `a` has already been declared, but it is still essential
         // that we store `a` into it, so that `a[z]` sees this iteration's value
         // of `a`.
-        let base_id = self.cached[base];
+        let mut base_id = self.cached[base];
+        if let crate::proc::TypeResolution::Handle(ty) = self.fun_info[base].ty {
+            if let Some(storage_type_id) = self.layoutless_workgroup_type_id(ty) {
+                base_id = self.copy_logical(base_id, storage_type_id, block);
+            }
+        }
         block
             .body
             .push(Instruction::store(spill_variable_id, base_id, None));
+        Ok(())
     }
 
     /// Generate an access to a spilled temporary, if necessary.
@@ -4499,7 +4562,7 @@ impl BlockContext<'_> {
                         .inner_with(&self.ir_module.types)
                         .clone();
                     let (pointer, layout, view) =
-                        self.write_cooperative_tensor(data, &matrix_ty, &mut block)?;
+                        self.write_cooperative_tensor(data, &matrix_ty, None, &mut block)?;
                     let mut instruction =
                         Instruction::new(spirv::Op::CooperativeMatrixStoreTensorNV);
                     instruction.add_operands([pointer, self.cached[target], layout]);
@@ -4508,6 +4571,7 @@ impl BlockContext<'_> {
                         data.pointer,
                         AccessKind::Store,
                         view,
+                        None,
                     );
                     block.body.push(instruction);
                 }
