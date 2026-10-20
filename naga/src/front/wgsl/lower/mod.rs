@@ -3137,7 +3137,7 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
         ctx: &mut ExpressionContext<'source, '_, '_>,
     ) -> Result<'source, Option<(Handle<ir::Expression>, MustUse)>> {
         let store = matches!(name, "coopStoreTensor" | "coopStoreTensorT");
-        let ty = if store {
+        let ty = if store || matches!(name, "coopMap" | "coopMultiplyAdd") {
             None
         } else {
             let (ty, ty_span) = template_params.ty_with_span(self, ctx)?;
@@ -3158,7 +3158,64 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
         } else {
             [1, 1]
         };
-        let expr = if matches!(name, "coopConvert" | "coopTranspose") {
+        let expr = if name == "coopMultiplyAdd" {
+            let mut args = ctx.prepare_args(arguments, 3, span);
+            let a = self.expression(args.next()?, ctx)?;
+            let b = self.expression(args.next()?, ctx)?;
+            let c = self.expression(args.next()?, ctx)?;
+            args.finish()?;
+            ir::Expression::CooperativeMultiplyAdd { a, b, c }
+        } else if name == "coopMap" {
+            let mut args = ctx.prepare_args(arguments, 2, span);
+            let matrix = self.expression(args.next()?, ctx)?;
+            let function = self.cooperative_callback(args.next()?, ctx)?;
+            let mut extra = Vec::new();
+            while args.args_used < args.total_args {
+                let argument = args.next()?;
+                let expr = self.expression_for_abstract(argument, ctx)?;
+                let index = extra.len() + 3;
+                let expr = if matches!(
+                    *resolve_inner!(ctx, expr),
+                    ir::TypeInner::CooperativeMatrix { .. }
+                ) {
+                    expr
+                } else if let Some(parameter) = ctx.module.functions[function].arguments.get(index)
+                {
+                    ctx.try_automatic_conversions(
+                        expr,
+                        &proc::TypeResolution::Handle(parameter.ty),
+                        ctx.ast_expressions.get_span(argument),
+                    )?
+                } else {
+                    ctx.concretize(expr)?
+                };
+                extra.push(expr);
+            }
+            args.finish()?;
+            ir::Expression::CooperativeMap {
+                matrix,
+                function,
+                arguments: extra,
+            }
+        } else if name.starts_with("coopReduce") {
+            let mut args = ctx.prepare_args(arguments, 2, span);
+            let matrix = self.expression(args.next()?, ctx)?;
+            let function = self.cooperative_callback(args.next()?, ctx)?;
+            args.finish()?;
+            let mode = match name {
+                "coopReduceRows" => ir::CooperativeReduceMode::Rows,
+                "coopReduceColumns" => ir::CooperativeReduceMode::Columns,
+                "coopReduceAll" => ir::CooperativeReduceMode::All,
+                "coopReduceQuad" => ir::CooperativeReduceMode::Quad,
+                _ => unreachable!(),
+            };
+            ir::Expression::CooperativeReduce {
+                ty: ty.unwrap(),
+                matrix,
+                function,
+                mode,
+            }
+        } else if matches!(name, "coopConvert" | "coopTranspose") {
             let mut args = ctx.prepare_args(arguments, 1, span);
             let source = self.expression(args.next()?, ctx)?;
             args.finish()?;
@@ -3243,6 +3300,12 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                 | "coopStoreTensorT"
                 | "coopConvert"
                 | "coopTranspose"
+                | "coopReduceRows"
+                | "coopReduceColumns"
+                | "coopReduceAll"
+                | "coopReduceQuad"
+                | "coopMap"
+                | "coopMultiplyAdd"
         ) {
             return self.cooperative_extension(
                 function_name,
@@ -4077,18 +4140,6 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                         function_span,
                     );
                     return Ok(None);
-                }
-                "coopMultiplyAdd" => {
-                    let mut args = ctx.prepare_args(arguments, 3, function_span);
-                    let a = self.expression(args.next()?, ctx)?;
-                    let b = self.expression(args.next()?, ctx)?;
-                    let c = self.expression(args.next()?, ctx)?;
-                    args.finish()?;
-
-                    (
-                        ir::Expression::CooperativeMultiplyAdd { a, b, c },
-                        MustUse::Yes,
-                    )
                 }
                 "traceRay" => {
                     let mut args = ctx.prepare_args(arguments, 3, function_span);

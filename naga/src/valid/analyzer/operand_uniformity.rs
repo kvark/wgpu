@@ -156,6 +156,8 @@ impl Graph {
             | E::ArrayLength(_)
             | E::CooperativeLoad { .. }
             | E::CooperativeConvert { .. }
+            | E::CooperativeReduce { .. }
+            | E::CooperativeMap { .. }
             | E::CooperativeTensorLoad { .. }
             | E::CooperativeMultiplyAdd { .. } => Source::Uniform,
             _ => Source::NonUniform,
@@ -356,6 +358,20 @@ impl Analysis<'_> {
                             }
                             E::CooperativeConvert { source, .. } => {
                                 self.require_at(source, &control, self.matrix_scope(handle))?;
+                            }
+                            E::CooperativeReduce { matrix, .. } => {
+                                self.require_at(matrix, &control, self.matrix_scope(handle))?;
+                            }
+                            E::CooperativeMap {
+                                matrix,
+                                ref arguments,
+                                ..
+                            } => {
+                                for operand in
+                                    core::iter::once(matrix).chain(arguments.iter().copied())
+                                {
+                                    self.require_at(operand, &control, self.matrix_scope(handle))?;
+                                }
                             }
                             E::CooperativeMultiplyAdd { a, .. } if self.workgroup_matrix(a) => {
                                 self.summary.cooperative = true;

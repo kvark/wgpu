@@ -808,6 +808,19 @@ fn write_function_expressions(
                 edges.insert("source", source);
                 ("coopConvert".into(), 4)
             }
+            E::CooperativeReduce { matrix, .. } => {
+                edges.insert("matrix", matrix);
+                ("coopReduce".into(), 4)
+            }
+            E::CooperativeMap {
+                matrix,
+                ref arguments,
+                ..
+            } => {
+                edges.insert("matrix", matrix);
+                payload = Some(Payload::Arguments(arguments));
+                ("coopMap".into(), 4)
+            }
         };
 
         // give uniform expressions an outline

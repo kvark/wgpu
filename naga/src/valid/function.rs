@@ -835,6 +835,8 @@ impl super::Validator {
                             | Ex::RayQueryVertexPositions { .. }
                             | Ex::CooperativeLoad { .. }
                             | Ex::CooperativeConvert { .. }
+                            | Ex::CooperativeReduce { .. }
+                            | Ex::CooperativeMap { .. }
                             | Ex::CooperativeTensorLoad { .. }
                             | Ex::CooperativeMultiplyAdd { .. } => {
                                 self.emit_expression(handle, context)?

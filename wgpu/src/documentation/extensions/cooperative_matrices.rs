@@ -407,6 +407,39 @@ current Rust SPIR-V bindings cannot represent in `Options::capabilities`.
 Vector decoding is encoding-tested but not GPU-tested on the available hardware;
 8-component vector results are not currently supported.
 
+#### Reductions and per-element callbacks
+
+- `coopReduceRows<Matrix>(value, combine)` combines each row and broadcasts its
+  result across that row. The destination must preserve the source row count.
+- `coopReduceColumns<Matrix>(value, combine)` similarly preserves the column count.
+- `coopReduceAll<Matrix>(value, combine)` reduces the entire matrix and broadcasts
+  to every destination element.
+- `coopReduceQuad<Matrix>(value, combine)` combines each aligned 2-by-2 region.
+  Source dimensions must be even; both destination dimensions are halved.
+
+Source and destination must be `C` matrices with the same component type and
+scope. The callback has signature `(Component, Component) -> Component`. The
+embedding must choose a mathematically associative and commutative operation;
+Naga checks types and purity, not these mathematical properties. Floating-point
+rounding and reduction order can change results. Device-supported matrix shapes
+still apply, including to the destination.
+
+`coopMap(value, function[, extra...])` preserves the matrix type and calls
+`function(row: u32, column: u32, value: Component[, extra...]) -> Component`.
+Coordinates are matrix-local. Extra matrix operands must have exactly the input
+matrix's type and pass their corresponding scalar component. Extra ordinary
+operands must be scalar/vector/matrix values matching the callback
+parameter types, uniform in the cooperative scope. Callback purity rules are the
+same as for block decoding. Execution order and invocation count are unspecified.
+Control flow must be uniform in the matrix scope.
+
+Enable `COOPERATIVE_MATRIX_REDUCTIONS` and/or
+`COOPERATIVE_MATRIX_PER_ELEMENT_OPERATIONS`, plus device
+`cooperativeMatrixReductions` / `cooperativeMatrixPerElementOperations` from
+`VK_NV_cooperative_matrix2`. This lowering requires SPIR-V 1.6; it does not yet
+target `SPV_EXT_cooperative_matrix_maintenance1` or other shader backends.
+These are compiler primitives for fused kernels, not a performance guarantee.
+
 ### Workgroup cooperation and execution model
 
 Cooperative matrix operations are **collective**:

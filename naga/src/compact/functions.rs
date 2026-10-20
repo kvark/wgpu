@@ -68,6 +68,11 @@ impl FunctionTracer<'_> {
                     self.trace_call(function);
                 }
             }
+            if let crate::Expression::CooperativeReduce { function, .. }
+            | crate::Expression::CooperativeMap { function, .. } = *expression
+            {
+                self.trace_call(function);
+            }
         }
     }
 

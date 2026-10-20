@@ -4682,6 +4682,8 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             Expression::RayQueryVertexPositions { .. }
             | Expression::CooperativeLoad { .. }
             | Expression::CooperativeConvert { .. }
+            | Expression::CooperativeReduce { .. }
+            | Expression::CooperativeMap { .. }
             | Expression::CooperativeTensorLoad { .. }
             | Expression::CooperativeMultiplyAdd { .. } => {
                 unreachable!()

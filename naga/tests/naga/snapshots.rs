@@ -388,6 +388,11 @@ fn write_output_spv_inner(
                         "TensorAddressingOperands(TENSOR_VIEW | DECODE_FUNC)",
                         "TensorView|DecodeFunc",
                     )
+            } else if line.contains("OpCooperativeMatrixReduceNV ") {
+                line.replace("CooperativeMatrixReduce(ROW)", "Row")
+                    .replace("CooperativeMatrixReduce(COLUMN)", "Column")
+                    .replace("CooperativeMatrixReduce(ROW | COLUMN)", "Row|Column")
+                    .replace("CooperativeMatrixReduce(_2X2)", "2x2")
             } else {
                 line.to_owned()
             }

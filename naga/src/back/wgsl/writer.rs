@@ -2146,6 +2146,38 @@ impl<W: Write> Writer<W> {
                 self.write_expr(module, source, func_ctx)?;
                 write!(self.out, ")")?;
             }
+            Expression::CooperativeReduce {
+                ty,
+                matrix,
+                mode,
+                function,
+            } => {
+                let suffix = match mode {
+                    crate::CooperativeReduceMode::Rows => "Rows",
+                    crate::CooperativeReduceMode::Columns => "Columns",
+                    crate::CooperativeReduceMode::All => "All",
+                    crate::CooperativeReduceMode::Quad => "Quad",
+                };
+                write!(self.out, "coopReduce{suffix}<")?;
+                self.write_type(module, ty)?;
+                write!(self.out, ">(")?;
+                self.write_expr(module, matrix, func_ctx)?;
+                write!(self.out, ", {})", self.names[&NameKey::Function(function)])?;
+            }
+            Expression::CooperativeMap {
+                matrix,
+                function,
+                ref arguments,
+            } => {
+                write!(self.out, "coopMap(")?;
+                self.write_expr(module, matrix, func_ctx)?;
+                write!(self.out, ", {}", self.names[&NameKey::Function(function)])?;
+                for &argument in arguments {
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, argument, func_ctx)?;
+                }
+                write!(self.out, ")")?;
+            }
             Expression::CooperativeMultiplyAdd { a, b, c } => {
                 write!(self.out, "coopMultiplyAdd(")?;
                 self.write_expr(module, a, func_ctx)?;

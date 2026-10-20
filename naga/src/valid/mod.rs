@@ -245,6 +245,10 @@ bitflags::bitflags! {
         const COOPERATIVE_MATRIX_BLOCK_LOADS = 1 << 52;
         /// Optional vector block-decoding callbacks.
         const COOPERATIVE_MATRIX_DECODE_VECTOR = 1 << 53;
+        /// Cooperative accumulator reductions (SPV_NV_cooperative_matrix2).
+        const COOPERATIVE_MATRIX_REDUCTIONS = 1 << 54;
+        /// Pure per-element cooperative callbacks (SPV_NV_cooperative_matrix2).
+        const COOPERATIVE_MATRIX_PER_ELEMENT_OPERATIONS = 1 << 55;
     }
 }
 
