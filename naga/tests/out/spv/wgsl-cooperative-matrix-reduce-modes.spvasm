@@ -1,0 +1,194 @@
+; SPIR-V
+; Version: 1.6
+; Generator: rspirv
+; Bound: 148
+OpCapability Shader
+OpCapability VulkanMemoryModel
+OpCapability Float16
+OpCapability StorageBuffer16BitAccess
+OpCapability UniformAndStorageBuffer16BitAccess
+OpCapability StorageInputOutput16
+OpCapability CooperativeMatrixKHR
+OpCapability TensorAddressingNV
+OpCapability CooperativeMatrixTensorAddressingNV
+OpCapability CooperativeMatrixReductionsNV
+OpCapability CooperativeMatrixPerElementOperationsNV
+OpExtension "SPV_NV_cooperative_matrix2"
+OpExtension "SPV_KHR_vulkan_memory_model"
+OpExtension "SPV_KHR_16bit_storage"
+OpExtension "SPV_KHR_cooperative_matrix"
+OpExtension "SPV_NV_tensor_addressing"
+%1 = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical Vulkan
+OpEntryPoint GLCompute %63 "main" %18
+OpExecutionMode %63 LocalSize 32 1 1
+OpDecorate %4 ArrayStride 4
+OpDecorate %18 DescriptorSet 0
+OpDecorate %18 Binding 0
+OpDecorate %19 Block
+OpMemberDecorate %19 0 Offset 0
+%2 = OpTypeVoid
+%3 = OpTypeFloat 32
+%4 = OpTypeRuntimeArray %3
+%5 = OpTypeInt 32 0
+%6 = OpTypeVector %3 2
+%7 = OpTypeFloat 16
+%9 = OpConstant  %5  2
+%10 = OpConstant  %5  32
+%8 = OpTypeCooperativeMatrixKHR %3 %9 %10 %10 %9
+%11 = OpTypeVector %5 2
+%13 = OpConstant  %5  16
+%12 = OpTypeCooperativeMatrixKHR %3 %9 %10 %13 %9
+%14 = OpTypeCooperativeMatrixKHR %3 %9 %13 %10 %9
+%15 = OpTypeCooperativeMatrixKHR %3 %9 %13 %13 %9
+%17 = OpConstant  %5  3
+%16 = OpTypeCooperativeMatrixKHR %7 %17 %13 %13 %9
+%19 = OpTypeStruct %4
+%20 = OpTypePointer StorageBuffer %19
+%18 = OpVariable  %20  StorageBuffer
+%25 = OpTypeFunction %3 %3 %3
+%35 = OpTypeFunction %3 %5 %5 %3 %3 %6
+%50 = OpTypeFunction %7 %7 %7
+%59 = OpTypeFunction %7 %5 %5 %7 %7
+%64 = OpTypeFunction %2
+%65 = OpTypePointer StorageBuffer %4
+%66 = OpConstant  %5  0
+%68 = OpConstantComposite  %11  %10 %10
+%69 = OpConstant  %5  1
+%70 = OpConstantComposite  %11  %10 %69
+%71 = OpTypeInt 32 1
+%72 = OpConstant  %71  0
+%73 = OpTypeVector %71 2
+%74 = OpConstantComposite  %73  %72 %72
+%75 = OpConstant  %3  2
+%76 = OpConstant  %3  1
+%77 = OpConstant  %3  -1
+%78 = OpConstantComposite  %6  %76 %77
+%79 = OpConstantNull  %16
+%80 = OpConstant  %7  0.000000000000000000000000000000000000000022959
+%82 = OpTypePointer StorageBuffer %3
+%90 = OpTypeTensorLayoutNV %9 %69
+%96 = OpConstantNull  %8
+%24 = OpFunction  %3  None %25
+%22 = OpFunctionParameter  %3
+%23 = OpFunctionParameter  %3
+%21 = OpLabel
+OpBranch %26
+%26 = OpLabel
+%27 = OpFAdd  %3  %22 %23
+OpReturnValue %27
+OpFunctionEnd
+%34 = OpFunction  %3  None %35
+%29 = OpFunctionParameter  %5
+%30 = OpFunctionParameter  %5
+%31 = OpFunctionParameter  %3
+%32 = OpFunctionParameter  %3
+%33 = OpFunctionParameter  %6
+%28 = OpLabel
+OpBranch %36
+%36 = OpLabel
+%37 = OpFMul  %3  %31 %32
+%38 = OpConvertUToF  %3  %29
+%39 = OpCompositeExtract  %3  %33 0
+%40 = OpFMul  %3  %38 %39
+%41 = OpFAdd  %3  %37 %40
+%42 = OpConvertUToF  %3  %30
+%43 = OpCompositeExtract  %3  %33 1
+%44 = OpFMul  %3  %42 %43
+%45 = OpFAdd  %3  %41 %44
+OpReturnValue %45
+OpFunctionEnd
+%49 = OpFunction  %7  None %50
+%47 = OpFunctionParameter  %7
+%48 = OpFunctionParameter  %7
+%46 = OpLabel
+OpBranch %51
+%51 = OpLabel
+%52 = OpFAdd  %7  %47 %48
+OpReturnValue %52
+OpFunctionEnd
+%58 = OpFunction  %7  None %59
+%54 = OpFunctionParameter  %5
+%55 = OpFunctionParameter  %5
+%56 = OpFunctionParameter  %7
+%57 = OpFunctionParameter  %7
+%53 = OpLabel
+OpBranch %60
+%60 = OpLabel
+%61 = OpFMul  %7  %56 %57
+OpReturnValue %61
+OpFunctionEnd
+%63 = OpFunction  %2  None %64
+%62 = OpLabel
+%67 = OpAccessChain  %65  %18 %66
+OpBranch %81
+%81 = OpLabel
+%83 = OpAccessChain  %82  %67 %66
+%84 = OpCompositeExtract  %5  %68 0
+%85 = OpCompositeExtract  %5  %68 1
+%86 = OpCompositeExtract  %5  %70 0
+%87 = OpCompositeExtract  %5  %70 1
+%88 = OpCompositeExtract  %71  %74 0
+%89 = OpCompositeExtract  %71  %74 1
+%91 = OpCreateTensorLayoutNV  %90
+%92 = OpTensorLayoutSetDimensionNV  %90  %91 %84 %85
+%93 = OpTensorLayoutSetStrideNV  %90  %92 %86 %87
+%94 = OpTensorLayoutSliceNV  %90  %93 %88 %10 %89 %10
+%95 = OpCooperativeMatrixLoadTensorNV  %8  %83 %96 %94 NonPrivatePointer None
+%97 = OpCooperativeMatrixReduceNV  %12  %95 Row %24
+%98 = OpCooperativeMatrixReduceNV  %14  %95 Column %24
+%99 = OpCooperativeMatrixReduceNV  %15  %95 Row|Column %24
+%100 = OpCooperativeMatrixReduceNV  %15  %95 2x2 %24
+%101 = OpCooperativeMatrixPerElementOpNV  %15  %100 %34 %75 %78
+%102 = OpAccessChain  %82  %67 %66
+%103 = OpCompositeExtract  %5  %68 0
+%104 = OpCompositeExtract  %5  %68 1
+%105 = OpCompositeExtract  %5  %70 0
+%106 = OpCompositeExtract  %5  %70 1
+%107 = OpCompositeExtract  %71  %74 0
+%108 = OpCompositeExtract  %71  %74 1
+%109 = OpCreateTensorLayoutNV  %90
+%110 = OpTensorLayoutSetDimensionNV  %90  %109 %103 %104
+%111 = OpTensorLayoutSetStrideNV  %90  %110 %105 %106
+%112 = OpTensorLayoutSliceNV  %90  %111 %107 %10 %108 %13
+OpCooperativeMatrixStoreTensorNV %102 %97 %112 NonPrivatePointer None
+%113 = OpAccessChain  %82  %67 %66
+%114 = OpCompositeExtract  %5  %68 0
+%115 = OpCompositeExtract  %5  %68 1
+%116 = OpCompositeExtract  %5  %70 0
+%117 = OpCompositeExtract  %5  %70 1
+%118 = OpCompositeExtract  %71  %74 0
+%119 = OpCompositeExtract  %71  %74 1
+%120 = OpCreateTensorLayoutNV  %90
+%121 = OpTensorLayoutSetDimensionNV  %90  %120 %114 %115
+%122 = OpTensorLayoutSetStrideNV  %90  %121 %116 %117
+%123 = OpTensorLayoutSliceNV  %90  %122 %118 %13 %119 %10
+OpCooperativeMatrixStoreTensorNV %113 %98 %123 NonPrivatePointer None
+%124 = OpAccessChain  %82  %67 %66
+%125 = OpCompositeExtract  %5  %68 0
+%126 = OpCompositeExtract  %5  %68 1
+%127 = OpCompositeExtract  %5  %70 0
+%128 = OpCompositeExtract  %5  %70 1
+%129 = OpCompositeExtract  %71  %74 0
+%130 = OpCompositeExtract  %71  %74 1
+%131 = OpCreateTensorLayoutNV  %90
+%132 = OpTensorLayoutSetDimensionNV  %90  %131 %125 %126
+%133 = OpTensorLayoutSetStrideNV  %90  %132 %127 %128
+%134 = OpTensorLayoutSliceNV  %90  %133 %129 %13 %130 %13
+OpCooperativeMatrixStoreTensorNV %124 %99 %134 NonPrivatePointer None
+%135 = OpAccessChain  %82  %67 %66
+%136 = OpCompositeExtract  %5  %68 0
+%137 = OpCompositeExtract  %5  %68 1
+%138 = OpCompositeExtract  %5  %70 0
+%139 = OpCompositeExtract  %5  %70 1
+%140 = OpCompositeExtract  %71  %74 0
+%141 = OpCompositeExtract  %71  %74 1
+%142 = OpCreateTensorLayoutNV  %90
+%143 = OpTensorLayoutSetDimensionNV  %90  %142 %136 %137
+%144 = OpTensorLayoutSetStrideNV  %90  %143 %138 %139
+%145 = OpTensorLayoutSliceNV  %90  %144 %140 %13 %141 %13
+OpCooperativeMatrixStoreTensorNV %135 %101 %145 NonPrivatePointer None
+%146 = OpCooperativeMatrixReduceNV  %16  %79 Row|Column %49
+%147 = OpCooperativeMatrixPerElementOpNV  %16  %146 %58 %80
+OpReturn
+OpFunctionEnd

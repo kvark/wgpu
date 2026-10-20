@@ -2338,6 +2338,61 @@ impl BlockContext<'_> {
                     id
                 }
             }
+            crate::Expression::CooperativeReduce {
+                matrix,
+                mode,
+                function,
+                ..
+            } => {
+                if self.writer.lang_version() < (1, 6) {
+                    return Err(Error::SpirvVersionTooLow(1, 6));
+                }
+                self.writer.require_any(
+                    "cooperative matrix reductions",
+                    &[spirv::Capability::CooperativeMatrixReductionsNV],
+                )?;
+                self.writer.use_extension("SPV_NV_cooperative_matrix2");
+                let mask = match mode {
+                    crate::CooperativeReduceMode::Rows => 1,
+                    crate::CooperativeReduceMode::Columns => 2,
+                    crate::CooperativeReduceMode::All => 3,
+                    crate::CooperativeReduceMode::Quad => 4,
+                };
+                let id = self.gen_id();
+                let mut instruction = Instruction::new(spirv::Op::CooperativeMatrixReduceNV);
+                instruction.set_type(result_type_id);
+                instruction.set_result(id);
+                instruction.add_operands([
+                    self.cached[matrix],
+                    mask,
+                    self.writer.lookup_function[&function],
+                ]);
+                block.body.push(instruction);
+                id
+            }
+            crate::Expression::CooperativeMap {
+                matrix,
+                function,
+                ref arguments,
+            } => {
+                if self.writer.lang_version() < (1, 6) {
+                    return Err(Error::SpirvVersionTooLow(1, 6));
+                }
+                self.writer.require_any(
+                    "cooperative matrix per-element operations",
+                    &[spirv::Capability::CooperativeMatrixPerElementOperationsNV],
+                )?;
+                self.writer.use_extension("SPV_NV_cooperative_matrix2");
+                let id = self.gen_id();
+                let mut instruction = Instruction::new(spirv::Op::CooperativeMatrixPerElementOpNV);
+                instruction.set_type(result_type_id);
+                instruction.set_result(id);
+                instruction
+                    .add_operands([self.cached[matrix], self.writer.lookup_function[&function]]);
+                instruction.add_operands(arguments.iter().map(|&argument| self.cached[argument]));
+                block.body.push(instruction);
+                id
+            }
             crate::Expression::CooperativeMultiplyAdd { a, b, c } => {
                 self.writer.require_any(
                     "CooperativeMatrix",

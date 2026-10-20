@@ -1344,6 +1344,8 @@ pub fn supported_capabilities() -> crate::valid::Capabilities {
         | Caps::COOPERATIVE_MATRIX_TENSOR_ADDRESSING
         | Caps::COOPERATIVE_MATRIX_BLOCK_LOADS
         | Caps::COOPERATIVE_MATRIX_DECODE_VECTOR
+        | Caps::COOPERATIVE_MATRIX_REDUCTIONS
+        | Caps::COOPERATIVE_MATRIX_PER_ELEMENT_OPERATIONS
         | Caps::SHADER_BFLOAT16
         | Caps::COOPERATIVE_MATRIX_WORKGROUP
         | Caps::PER_VERTEX

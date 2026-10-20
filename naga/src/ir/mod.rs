@@ -2000,6 +2000,31 @@ pub enum Expression {
         #[cfg_attr(feature = "deserialize", serde(default))]
         decode: Option<CooperativeTensorDecode>,
     },
+    /// Reduce an accumulator matrix with a pure, commutative/associative callback.
+    CooperativeReduce {
+        ty: Handle<Type>,
+        matrix: Handle<Expression>,
+        mode: CooperativeReduceMode,
+        function: Handle<Function>,
+    },
+    /// Apply a pure callback to matrix elements and optional uniform/matrix operands.
+    CooperativeMap {
+        matrix: Handle<Expression>,
+        function: Handle<Function>,
+        arguments: Vec<Handle<Expression>>,
+    },
+}
+
+/// The elements combined by a cooperative matrix reduction.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serialize", derive(Serialize))]
+#[cfg_attr(feature = "deserialize", derive(Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+pub enum CooperativeReduceMode {
+    Rows,
+    Columns,
+    All,
+    Quad,
 }
 
 /// The value of the switch case.

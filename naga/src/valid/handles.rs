@@ -677,6 +677,31 @@ impl super::Validator {
                 validate_type(ty)?;
                 handle.check_dep(source)?;
             }
+            crate::Expression::CooperativeReduce {
+                ty,
+                matrix,
+                function,
+                ..
+            } => {
+                validate_type(ty)?;
+                handle.check_dep(matrix)?;
+                Self::validate_function_handle(function, functions)?;
+                if let Some(current) = current_function {
+                    current.check_dep(function)?;
+                }
+            }
+            crate::Expression::CooperativeMap {
+                matrix,
+                function,
+                ref arguments,
+            } => {
+                handle.check_dep(matrix)?;
+                handle.check_dep_iter(arguments.iter().copied())?;
+                Self::validate_function_handle(function, functions)?;
+                if let Some(current) = current_function {
+                    current.check_dep(function)?;
+                }
+            }
             crate::Expression::CooperativeTensorLoad {
                 ty,
                 ref data,

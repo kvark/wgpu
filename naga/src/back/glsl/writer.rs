@@ -3879,6 +3879,8 @@ impl<'a, W: Write> Writer<'a, W> {
             | Expression::RayQueryVertexPositions { .. }
             | Expression::CooperativeLoad { .. }
             | Expression::CooperativeConvert { .. }
+            | Expression::CooperativeReduce { .. }
+            | Expression::CooperativeMap { .. }
             | Expression::CooperativeTensorLoad { .. }
             | Expression::CooperativeMultiplyAdd { .. } => unreachable!(),
         }

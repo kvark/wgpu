@@ -266,6 +266,20 @@ impl ExpressionTracer<'_> {
                 self.types_used.insert(ty);
                 self.expressions_used.insert(source);
             }
+            Ex::CooperativeReduce { ty, matrix, .. } => {
+                self.types_used.insert(ty);
+                self.expressions_used.insert(matrix);
+            }
+            Ex::CooperativeMap {
+                matrix,
+                ref arguments,
+                ..
+            } => {
+                self.expressions_used.insert(matrix);
+                for &argument in arguments {
+                    self.expressions_used.insert(argument);
+                }
+            }
             Ex::CooperativeTensorLoad { ty, ref data, .. } => {
                 self.types_used.insert(ty);
                 for operand in data.operands() {
@@ -470,6 +484,27 @@ impl ModuleMap {
                 adjust(a);
                 adjust(b);
                 adjust(c);
+            }
+            Ex::CooperativeReduce {
+                ref mut ty,
+                ref mut matrix,
+                ref mut function,
+                ..
+            } => {
+                self.types.adjust(ty);
+                self.functions.adjust(function);
+                adjust(matrix);
+            }
+            Ex::CooperativeMap {
+                ref mut matrix,
+                ref mut function,
+                ref mut arguments,
+            } => {
+                self.functions.adjust(function);
+                adjust(matrix);
+                for argument in arguments {
+                    adjust(argument);
+                }
             }
         }
     }

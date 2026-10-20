@@ -697,6 +697,17 @@ fn adjust_expr(new_pos: &HandleVec<Expression, Handle<Expression>>, expr: &mut E
             adjust(&mut data.stride);
         }
         Expression::CooperativeConvert { ref mut source, .. } => adjust(source),
+        Expression::CooperativeReduce { ref mut matrix, .. } => adjust(matrix),
+        Expression::CooperativeMap {
+            ref mut matrix,
+            ref mut arguments,
+            ..
+        } => {
+            adjust(matrix);
+            for argument in arguments {
+                adjust(argument);
+            }
+        }
         Expression::CooperativeTensorLoad { ref mut data, .. } => data.adjust(adjust),
         Expression::CooperativeMultiplyAdd {
             ref mut a,

@@ -873,6 +873,21 @@ impl FunctionInfo {
                 non_uniform_result: self.add_ref(source),
                 requirements: UniformityRequirements::COOP_OPS,
             },
+            E::CooperativeReduce { matrix, .. } => Uniformity {
+                non_uniform_result: self.add_ref(matrix),
+                // The operand graph checks both operands and control flow at the matrix scope.
+                requirements: UniformityRequirements::empty(),
+            },
+            E::CooperativeMap {
+                matrix,
+                ref arguments,
+                ..
+            } => Uniformity {
+                non_uniform_result: core::iter::once(matrix)
+                    .chain(arguments.iter().copied())
+                    .fold(None, |result, operand| self.add_ref(operand).or(result)),
+                requirements: UniformityRequirements::empty(),
+            },
             E::CooperativeTensorLoad { ref data, .. } => Uniformity {
                 non_uniform_result: data
                     .operands()

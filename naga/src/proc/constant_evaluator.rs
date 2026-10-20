@@ -1380,6 +1380,8 @@ impl<'a> ConstantEvaluator<'a> {
             }
             Expression::CooperativeLoad { .. }
             | Expression::CooperativeConvert { .. }
+            | Expression::CooperativeReduce { .. }
+            | Expression::CooperativeMap { .. }
             | Expression::CooperativeTensorLoad { .. }
             | Expression::CooperativeMultiplyAdd { .. } => {
                 Err(ConstantEvaluatorError::CooperativeOperation)

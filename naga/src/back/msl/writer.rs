@@ -3090,6 +3090,8 @@ impl<W: Write> Writer<W> {
                 write!(self.out, ")")?;
             }
             crate::Expression::CooperativeConvert { .. }
+            | crate::Expression::CooperativeReduce { .. }
+            | crate::Expression::CooperativeMap { .. }
             | crate::Expression::CooperativeTensorLoad { .. } => {
                 return Err(Error::UnsupportedCooperativeMatrix);
             }
