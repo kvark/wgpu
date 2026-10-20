@@ -46,6 +46,7 @@ Bottom level categories:
 
 #### Naga
 
+- Add opt-in cooperative block decoding with scalar/vector callbacks for direct SPIR-V embeddings; keep function temporaries free of buffer layout decorations on SPIR-V 1.4+.
 - Add opt-in SPIR-V cooperative matrix conversions and zero-padded 2D tensor loads/stores for Naga embeddings.
 - Add an opt-in SPIR-V writer flag to preserve f16 subnormals on supported devices.
 - Support BF16 storage, conversion and cooperative matrix operands in MSL 3.1 and later.

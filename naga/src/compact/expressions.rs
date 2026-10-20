@@ -266,7 +266,7 @@ impl ExpressionTracer<'_> {
                 self.types_used.insert(ty);
                 self.expressions_used.insert(source);
             }
-            Ex::CooperativeTensorLoad { ty, ref data } => {
+            Ex::CooperativeTensorLoad { ty, ref data, .. } => {
                 self.types_used.insert(ty);
                 for operand in data.operands() {
                     self.expressions_used.insert(operand);
@@ -453,9 +453,14 @@ impl ModuleMap {
             Ex::CooperativeTensorLoad {
                 ref mut ty,
                 ref mut data,
+                ref mut decode,
             } => {
                 self.types.adjust(ty);
                 data.adjust(adjust);
+                if let Some(ref mut decode) = *decode {
+                    self.functions.adjust(&mut decode.function);
+                    self.functions.adjust_option(&mut decode.vector_function);
+                }
             }
             Ex::CooperativeMultiplyAdd {
                 ref mut a,

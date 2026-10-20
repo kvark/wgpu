@@ -370,6 +370,39 @@ separate safety boundary. Loads/stores require uniform layout operands and contr
 flow within the matrix scope. Array pointers whose own access needs conditional
 buffer bounds checks are not currently supported by the SPIR-V backend.
 
+#### Block decoding
+
+`coopLoadTensorBlockT<Matrix, block_rows, block_columns>(&buffer, dimensions,
+strides, offset, decode[, decode_vector])` loads encoded blocks. The variant
+without `T` transposes the view. Block dimensions are positive constant `u32`
+values; strides count blocks, while dimensions and offsets count decoded elements.
+The storage array element may contain numeric values, fixed arrays, and structs.
+It must be sized and have alignment at most 16 bytes.
+
+The scalar callback has signature `(block: Block, block_coordinate: vec2u,
+element_coordinate: vec2u) -> Component`. Coordinates are in tensor memory order;
+the element coordinate is relative to the block. Naga supplies the physical-pointer
+wrapper internally. Callbacks and their callees must be pure: local arithmetic and
+local memory are allowed, but global memory, synchronization, derivatives,
+cooperative operations, and external side effects are not.
+
+Enable `COOPERATIVE_MATRIX_BLOCK_LOADS`, device `cooperativeMatrixBlockLoads`, and
+buffer device addresses. The embedding must satisfy all tensor-addressing safety
+conditions above for the complete encoded blocks. Callback blocks are passed by
+value; large blocks and dynamic array indexing can have a performance cost.
+
+An optional vector callback takes the same arguments and returns `vec2<Component>`
+or `vec4<Component>`. Its width must divide the inner block dimension, and its
+results must agree with consecutive scalar callback evaluations. The embedding
+must ensure that semantic equivalence. The implementation may choose either
+callback. Enable `COOPERATIVE_MATRIX_DECODE_VECTOR`, the device extension
+`VK_NV_cooperative_matrix_decode_vector`, and
+`spv::WriterFlags::COOPERATIVE_MATRIX_DECODE_VECTOR`.
+The writer flag explicitly authorizes the extension's capability, which the
+current Rust SPIR-V bindings cannot represent in `Options::capabilities`.
+Vector decoding is encoding-tested but not GPU-tested on the available hardware;
+8-component vector results are not currently supported.
+
 ### Workgroup cooperation and execution model
 
 Cooperative matrix operations are **collective**:

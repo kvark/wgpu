@@ -383,6 +383,11 @@ fn write_output_spv_inner(
             {
                 line.replace("TensorAddressingOperands(0x0)", "None")
                     .replace("TensorAddressingOperands(TENSOR_VIEW)", "TensorView")
+                    .replace("TensorAddressingOperands(DECODE_FUNC)", "DecodeFunc")
+                    .replace(
+                        "TensorAddressingOperands(TENSOR_VIEW | DECODE_FUNC)",
+                        "TensorView|DecodeFunc",
+                    )
             } else {
                 line.to_owned()
             }

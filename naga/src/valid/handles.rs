@@ -677,9 +677,22 @@ impl super::Validator {
                 validate_type(ty)?;
                 handle.check_dep(source)?;
             }
-            crate::Expression::CooperativeTensorLoad { ty, ref data } => {
+            crate::Expression::CooperativeTensorLoad {
+                ty,
+                ref data,
+                ref decode,
+            } => {
                 validate_type(ty)?;
                 handle.check_dep_iter(data.operands().into_iter())?;
+                if let Some(ref decode) = *decode {
+                    for function in core::iter::once(decode.function).chain(decode.vector_function)
+                    {
+                        Self::validate_function_handle(function, functions)?;
+                        if let Some(current) = current_function {
+                            current.check_dep(function)?;
+                        }
+                    }
+                }
             }
         }
         Ok(())

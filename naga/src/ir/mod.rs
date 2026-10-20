@@ -1614,6 +1614,19 @@ impl CooperativeTensorData {
     }
 }
 
+/// Pure block decoders. Functions receive `(block, block_coord, element_coord)`.
+/// The block is passed by value; coordinates are `vec2<u32>`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serialize", derive(Serialize))]
+#[cfg_attr(feature = "deserialize", derive(Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+pub struct CooperativeTensorDecode {
+    pub block_size: [u32; 2],
+    pub function: Handle<Function>,
+    /// Optional equivalent decoder returning `vec2` or `vec4` components.
+    pub vector_function: Option<Handle<Function>>,
+}
+
 /// An expression that can be evaluated to obtain a value.
 ///
 /// This is a Single Static Assignment (SSA) scheme similar to SPIR-V.
@@ -1984,6 +1997,8 @@ pub enum Expression {
     CooperativeTensorLoad {
         ty: Handle<Type>,
         data: CooperativeTensorData,
+        #[cfg_attr(feature = "deserialize", serde(default))]
+        decode: Option<CooperativeTensorDecode>,
     },
 }
 

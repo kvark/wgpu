@@ -119,7 +119,7 @@ impl crate::AddressSpace {
     /// Whether variables in this space must not have explicit layout decorations
     /// (`VUID-StandaloneSpirv-None-10684`).
     pub(super) const fn forbids_explicit_layout(self) -> bool {
-        matches!(self, Self::WorkGroup | Self::TaskPayload)
+        matches!(self, Self::WorkGroup | Self::TaskPayload | Self::Function)
     }
 }
 

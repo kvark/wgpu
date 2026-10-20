@@ -2099,16 +2099,34 @@ impl<W: Write> Writer<W> {
                 self.write_expr(module, data.stride, func_ctx)?;
                 write!(self.out, ")")?;
             }
-            Expression::CooperativeTensorLoad { ty, ref data } => {
+            Expression::CooperativeTensorLoad {
+                ty,
+                ref data,
+                ref decode,
+            } => {
                 let suffix = if data.row_major { "T" } else { "" };
-                write!(self.out, "coopLoadTensor{suffix}<")?;
+                let block = if decode.is_some() { "Block" } else { "" };
+                write!(self.out, "coopLoadTensor{block}{suffix}<")?;
                 self.write_type(module, ty)?;
+                if let Some(ref decode) = *decode {
+                    write!(
+                        self.out,
+                        ", {}u, {}u",
+                        decode.block_size[0], decode.block_size[1]
+                    )?;
+                }
                 write!(self.out, ">(")?;
                 for (index, operand) in data.operands().into_iter().enumerate() {
                     if index != 0 {
                         write!(self.out, ", ")?;
                     }
                     self.write_expr(module, operand, func_ctx)?;
+                }
+                if let Some(ref decode) = *decode {
+                    for function in core::iter::once(decode.function).chain(decode.vector_function)
+                    {
+                        write!(self.out, ", {}", self.names[&NameKey::Function(function)])?;
+                    }
                 }
                 write!(self.out, ")")?;
             }
