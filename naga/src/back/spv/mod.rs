@@ -301,6 +301,9 @@ struct Function {
     /// [`spilled_composites`]: Function::spilled_composites
     access_uses: crate::FastHashMap<Handle<crate::Expression>, usize>,
 
+    /// By-value block accesses lowered through a decoder's physical pointer.
+    decode_accesses: crate::arena::HandleSet<crate::Expression>,
+
     blocks: Vec<TerminatedBlock>,
     entry_point_context: Option<EntryPointContext>,
 }

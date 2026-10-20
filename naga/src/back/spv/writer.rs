@@ -593,6 +593,7 @@ impl Writer {
         ir_function: &crate::Function,
         info: &FunctionInfo,
         ir_module: &crate::Module,
+        mod_info: &ModuleInfo,
     ) -> Result<(), Error> {
         log::trace!("Generating wrapped functions for {:?}", ir_function.name);
 
@@ -602,7 +603,7 @@ impl Writer {
                     decode: Some(decode),
                     ..
                 } => {
-                    self.write_cooperative_decode(decode.function, ir_module)?;
+                    self.write_cooperative_decode(decode.function, ir_module, mod_info)?;
                     if let Some(function) = decode.vector_function {
                         if !self
                             .flags
@@ -612,7 +613,7 @@ impl Writer {
                                 "vector decode requires the COOPERATIVE_MATRIX_DECODE_VECTOR writer flag"));
                         }
                         self.use_extension("SPV_NV_cooperative_matrix_decode_vector");
-                        self.write_cooperative_decode(function, ir_module)?;
+                        self.write_cooperative_decode(function, ir_module, mod_info)?;
                     }
                 }
                 crate::Expression::Binary { op, left, right } => {
@@ -1325,6 +1326,7 @@ impl Writer {
         &mut self,
         callback: Handle<crate::Function>,
         module: &crate::Module,
+        mod_info: &ModuleInfo,
     ) -> Result<(), Error> {
         self.require_any(
             "cooperative block loads",
@@ -1339,9 +1341,11 @@ impl Writer {
         if self.wrapped_functions.contains_key(&key) {
             return Ok(());
         }
+        let ir = &module.functions[callback];
+        let callback_id =
+            self.write_function(ir, &mod_info[callback], module, None, &None, true)?;
         let function_id = self.id_gen.next();
         self.wrapped_functions.insert(key, function_id);
-        let ir = &module.functions[callback];
         let block_ty = ir.arguments[0].ty;
         let block_type_id = self.get_handle_type_id(block_ty);
         let pointer_type =
@@ -1371,14 +1375,7 @@ impl Writer {
         });
         self.decorate(parameters[0], spirv::Decoration::Aliased, &[]);
         let mut block = Block::new(self.id_gen.next());
-        let value = self.id_gen.next();
-        let mut load = Instruction::load(block_type_id, value, parameters[0], None);
-        load.add_operand(spirv::MemoryAccess::ALIGNED.bits());
-        // The array's element stride and a 16-byte aligned base establish this.
-        let stride = module.types[block_ty].inner.size(module.to_ctx());
-        load.add_operand(1 << stride.trailing_zeros().min(4));
-        block.body.push(load);
-        let mut arguments = vec![value];
+        let mut arguments = vec![parameters[0]];
         for parameter in &parameters[1..] {
             let components = [0, 1].map(|index| {
                 let id = self.id_gen.next();
@@ -1402,7 +1399,7 @@ impl Writer {
         block.body.push(Instruction::function_call(
             return_type,
             result,
-            self.lookup_function[&callback],
+            callback_id,
             &arguments,
         ));
         function.consume(block, Instruction::return_value(result));
@@ -1417,11 +1414,25 @@ impl Writer {
         ir_module: &crate::Module,
         mut interface: Option<FunctionInterface>,
         debug_info: &Option<DebugInfoInner>,
+        decode: bool,
     ) -> Result<Word, Error> {
-        self.write_wrapped_functions(ir_function, info, ir_module)?;
-
         log::trace!("Generating code for {:?}", ir_function.name);
         let mut function = Function::default();
+        for (handle, expr) in ir_function.expressions.iter() {
+            match *expr {
+                crate::Expression::FunctionArgument(0) if decode => {
+                    function.decode_accesses.insert(handle);
+                }
+                crate::Expression::Access { base, .. }
+                | crate::Expression::AccessIndex { base, .. } => {
+                    *function.access_uses.entry(base).or_insert(0) += 1;
+                    if function.decode_accesses.contains(base) {
+                        function.decode_accesses.insert(handle);
+                    }
+                }
+                _ => {}
+            }
+        }
 
         let prelude_id = self.id_gen.next();
         let mut prelude = Block::new(prelude_id);
@@ -1441,10 +1452,15 @@ impl Writer {
         let mut local_invocation_index_var_id = None;
         let mut local_invocation_index_id = None;
 
-        for argument in ir_function.arguments.iter() {
+        for (index, argument) in ir_function.arguments.iter().enumerate() {
             let class = spirv::StorageClass::Input;
             let handle_ty = ir_module.types[argument.ty].inner.is_handle();
-            let argument_type_id = if handle_ty {
+            let argument_type_id = if decode && index == 0 {
+                self.get_handle_pointer_type_id(
+                    argument.ty,
+                    spirv::StorageClass::PhysicalStorageBuffer,
+                )
+            } else if handle_ty {
                 self.get_handle_pointer_type_id(argument.ty, spirv::StorageClass::UniformConstant)
             } else {
                 self.get_handle_type_id(argument.ty)
@@ -1513,6 +1529,9 @@ impl Writer {
                 ep_context.argument_ids.push(id);
             } else {
                 let argument_id = self.id_gen.next();
+                if decode && index == 0 {
+                    self.decorate(argument_id, spirv::Decoration::Aliased, &[]);
+                }
                 let instruction = Instruction::function_parameter(argument_type_id, argument_id);
                 if self.flags.contains(WriterFlags::DEBUG) {
                     if let Some(ref name) = argument.name {
@@ -1863,12 +1882,6 @@ impl Writer {
                     // the value of this expression.
                     context.cache_expression_value(handle, &mut prelude)?;
                 }
-                crate::Expression::Access { base, .. }
-                | crate::Expression::AccessIndex { base, .. } => {
-                    // Count references to `base` by `Access` and `AccessIndex`
-                    // instructions. See `access_uses` for details.
-                    *context.function.access_uses.entry(base).or_insert(0) += 1;
-                }
                 _ => {}
             }
         }
@@ -1956,8 +1969,10 @@ impl Writer {
         info: &FunctionInfo,
         ir_module: &crate::Module,
         debug_info: &Option<DebugInfoInner>,
+        mod_info: &ModuleInfo,
     ) -> Result<Word, Error> {
         let mut interface_ids = Vec::new();
+        self.write_wrapped_functions(&entry_point.function, info, ir_module, mod_info)?;
 
         let function_id = self.write_function(
             &entry_point.function,
@@ -1971,6 +1986,7 @@ impl Writer {
                 workgroup_size: entry_point.workgroup_size,
             }),
             debug_info,
+            false,
         )?;
 
         let exec_model = match entry_point.stage {
@@ -4424,7 +4440,9 @@ impl Writer {
                     continue;
                 }
             }
-            let id = self.write_function(ir_function, info, ir_module, None, &debug_info_inner)?;
+            self.write_wrapped_functions(ir_function, info, ir_module, mod_info)?;
+            let id =
+                self.write_function(ir_function, info, ir_module, None, &debug_info_inner, false)?;
             self.lookup_function.insert(handle, id);
         }
 
@@ -4435,7 +4453,7 @@ impl Writer {
                 continue;
             }
             let info = mod_info.get_entry_point(index);
-            let id = self.write_entry_point(ir_ep, info, ir_module, &debug_info_inner)?;
+            let id = self.write_entry_point(ir_ep, info, ir_module, &debug_info_inner, mod_info)?;
             if self.flags.contains(WriterFlags::PRESERVE_F16_DENORMS) {
                 entry_point_ids.push(id);
             }

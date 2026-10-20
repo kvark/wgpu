@@ -2,7 +2,7 @@
 Implementations for `BlockContext` methods.
 */
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 use arrayvec::ArrayVec;
 use spirv::Word;
@@ -808,6 +808,19 @@ impl BlockContext<'_> {
             self.writer.request_type_capabilities(result_type)?;
         }
         let result_type_id = self.get_expression_type_id(&self.fun_info[expr_handle].ty);
+        if self.function.decode_accesses.contains(expr_handle) {
+            let access_uses = self
+                .function
+                .access_uses
+                .get(&expr_handle)
+                .copied()
+                .unwrap_or(0);
+            if access_uses != self.fun_info[expr_handle].ref_count {
+                let id = self.write_decode_load(expr_handle, block, result_type_id)?;
+                self.cached[expr_handle] = id;
+            }
+            return Ok(());
+        }
         let id = match self.ir_function.expressions[expr_handle] {
             crate::Expression::Literal(literal) => self.writer.get_constant_scalar(literal),
             crate::Expression::Constant(handle) => {
@@ -3185,6 +3198,63 @@ impl BlockContext<'_> {
         match self.layoutless_workgroup_type_id(base) {
             Some(wg_type_id) => self.copy_logical(value_id, wg_type_id, block),
             None => value_id,
+        }
+    }
+
+    fn write_decode_load(
+        &mut self,
+        access: Handle<crate::Expression>,
+        block: &mut Block,
+        result_type_id: Word,
+    ) -> Result<Word, Error> {
+        let types = &self.ir_module.types;
+        let mut pending = vec![self.fun_info[access].ty.inner_with(types)];
+        let mut seen = crate::arena::HandleSet::for_arena(types);
+        let mut alignment = 1;
+        while let Some(ty) = pending.pop() {
+            match *ty {
+                crate::TypeInner::Struct { ref members, .. } => {
+                    for member in members {
+                        if seen.insert(member.ty) {
+                            pending.push(&types[member.ty].inner);
+                        }
+                    }
+                }
+                crate::TypeInner::Array { base, .. } => {
+                    if seen.insert(base) {
+                        pending.push(&types[base].inner);
+                    }
+                }
+                _ => alignment = alignment.max(u32::from(ty.scalar_width().unwrap())),
+            }
+        }
+        let load = |id_gen: &mut IdGenerator, block: &mut Block, pointer_id| {
+            let id = id_gen.next();
+            let mut instruction = Instruction::load(result_type_id, id, pointer_id, None);
+            instruction.add_operand(spirv::MemoryAccess::ALIGNED.bits());
+            instruction.add_operand(alignment);
+            block.body.push(instruction);
+            id
+        };
+        match self.write_access_chain(
+            access,
+            block,
+            AccessTypeAdjustment::IntroducePointer(spirv::StorageClass::PhysicalStorageBuffer),
+        )? {
+            ExpressionPointer::Ready { pointer_id } => {
+                Ok(load(&mut self.writer.id_gen, block, pointer_id))
+            }
+            ExpressionPointer::Conditional { condition, access } => Ok(self
+                .write_conditional_indexed_load(
+                    result_type_id,
+                    condition,
+                    block,
+                    |id_gen, block| {
+                        let pointer_id = access.result_id.unwrap();
+                        block.body.push(access);
+                        load(id_gen, block, pointer_id)
+                    },
+                )),
         }
     }
 

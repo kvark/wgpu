@@ -10,6 +10,205 @@ use rspirv::binary::Disassemble;
 const SCALAR: &str = include_str!("../in/wgsl/cooperative-matrix-decode.wgsl");
 const VECTOR: &str = include_str!("../in/wgsl/cooperative-matrix-decode-vector.wgsl");
 
+fn compile(source: &str, policy: naga::proc::BoundsCheckPolicy) -> rspirv::dr::Module {
+    let module = naga::front::wgsl::parse_str(source).unwrap();
+    let info = Validator::new(ValidationFlags::all(), Capabilities::all())
+        .validate(&module)
+        .unwrap();
+    let options = spv::Options {
+        lang_version: (1, 6),
+        bounds_check_policies: naga::proc::BoundsCheckPolicies {
+            index: policy,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let words = spv::write_vec(&module, &info, &options, None).unwrap();
+    rspirv::dr::load_words(&words).unwrap()
+}
+
+fn decode_body(module: &rspirv::dr::Module) -> &rspirv::dr::Function {
+    use rspirv::dr::Operand;
+    let load = module
+        .all_inst_iter()
+        .find(|inst| {
+            inst.class.opcode == spirv::Op::CooperativeMatrixLoadTensorNV
+                && inst.operands.iter().any(|operand| {
+                    matches!(operand, Operand::TensorAddressingOperands(mask)
+                        if mask.contains(spirv::TensorAddressingOperands::DECODE_FUNC))
+                })
+        })
+        .unwrap();
+    let Operand::IdRef(wrapper_id) = *load.operands.last().unwrap() else {
+        panic!("missing decoder");
+    };
+    let wrapper = module
+        .functions
+        .iter()
+        .find(|function| function.def.as_ref().unwrap().result_id == Some(wrapper_id))
+        .unwrap();
+    let call = wrapper
+        .all_inst_iter()
+        .find(|inst| inst.class.opcode == spirv::Op::FunctionCall)
+        .unwrap();
+    let Operand::IdRef(body_id) = call.operands[0] else {
+        panic!("missing decoder body");
+    };
+    assert!(!wrapper
+        .all_inst_iter()
+        .any(|inst| inst.class.opcode == spirv::Op::Load));
+    module
+        .functions
+        .iter()
+        .find(|function| function.def.as_ref().unwrap().result_id == Some(body_id))
+        .unwrap()
+}
+
+#[test]
+fn decoder_loads_fields_without_materializing_the_block() {
+    let module = compile(SCALAR, naga::proc::BoundsCheckPolicy::Unchecked);
+    let body = decode_body(&module);
+    let loads: Vec<_> = body
+        .all_inst_iter()
+        .filter(|inst| inst.class.opcode == spirv::Op::Load)
+        .collect();
+    assert_eq!(loads.len(), 2);
+    for load in loads {
+        let ty = module
+            .types_global_values
+            .iter()
+            .find(|inst| inst.result_id == load.result_type)
+            .unwrap();
+        assert_eq!(ty.class.opcode, spirv::Op::TypeInt);
+        assert!(load.disassemble().contains("Aligned 4"));
+    }
+    assert!(!body
+        .all_inst_iter()
+        .any(|inst| inst.class.opcode == spirv::Op::Variable));
+}
+
+#[test]
+fn decoder_preserves_index_checks() {
+    use naga::proc::BoundsCheckPolicy;
+    for policy in [
+        BoundsCheckPolicy::Restrict,
+        BoundsCheckPolicy::ReadZeroSkipWrite,
+    ] {
+        let module = compile(
+            &SCALAR.replace("element.y / 4u", "element.y / 4u + 8u"),
+            policy,
+        );
+        let function = decode_body(&module);
+        let body = function.disassemble();
+        match policy {
+            BoundsCheckPolicy::Restrict => {
+                let maximum = module
+                    .types_global_values
+                    .iter()
+                    .find(|inst| {
+                        inst.class.opcode == spirv::Op::Constant
+                            && inst.operands == [rspirv::dr::Operand::LiteralBit32(7)]
+                    })
+                    .unwrap()
+                    .result_id
+                    .unwrap();
+                assert!(
+                    function.all_inst_iter().any(|inst| {
+                        inst.class.opcode == spirv::Op::ExtInst
+                            && inst.operands[1]
+                                == rspirv::dr::Operand::LiteralExtInstInteger(
+                                    spirv::GlslStd450Op::UMin as u32,
+                                )
+                            && inst.operands.last() == Some(&rspirv::dr::Operand::IdRef(maximum))
+                    }),
+                    "{body}"
+                );
+            }
+            BoundsCheckPolicy::ReadZeroSkipWrite => {
+                assert!(body.contains("OpULessThan"), "{body}");
+                assert!(body.contains("OpBranchConditional"), "{body}");
+                assert!(body.contains("OpPhi"), "{body}");
+            }
+            BoundsCheckPolicy::Unchecked => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn decoder_can_still_pass_a_whole_block_by_value() {
+    let source = SCALAR.replace(
+        "fn decode_q8(",
+        "fn decode_q8(block: BlockQ8, block_coord: vec2u, element: vec2u) -> f16 {\n\
+            return helper(block, block_coord, element);\n}\nfn helper(",
+    );
+    let module = compile(&source, naga::proc::BoundsCheckPolicy::ReadZeroSkipWrite);
+    let body = decode_body(&module);
+    let load = body
+        .all_inst_iter()
+        .find(|inst| inst.class.opcode == spirv::Op::Load)
+        .unwrap();
+    assert!(load.disassemble().contains("Aligned 4"));
+    assert!(body
+        .all_inst_iter()
+        .any(|inst| inst.class.opcode == spirv::Op::FunctionCall));
+}
+
+#[test]
+fn decoder_defers_nested_accesses_and_keeps_local_copies() {
+    for (source, expected_loads) in [
+        (
+            SCALAR
+                .replace("quant: array<u32, 8>", "quant: array<array<u32, 4>, 2>")
+                .replace(
+                    "block.quant[element.y / 4u]",
+                    "block.quant[element.y / 16u][(element.y / 4u) % 4u]",
+                ),
+            2,
+        ),
+        (
+            SCALAR.replace(
+                "let packed = bitcast<i32>(block.quant[element.y / 4u]);",
+                "var copy = block;\ncopy.quant[0] = 0u;\n\
+                 let packed = bitcast<i32>(copy.quant[element.y / 4u]);",
+            ),
+            3,
+        ),
+    ] {
+        let module = compile(&source, naga::proc::BoundsCheckPolicy::ReadZeroSkipWrite);
+        let body = decode_body(&module);
+        assert_eq!(
+            body.all_inst_iter()
+                .filter(|inst| inst.class.opcode == spirv::Op::Load)
+                .count(),
+            expected_loads
+        );
+    }
+}
+
+#[test]
+fn ordinary_calls_do_not_use_physical_decoder_parameters() {
+    let source = format!(
+        "{SCALAR}\n@compute @workgroup_size(1) fn ordinary() {{\n\
+         c[0] = f32(decode_q8(b[0], vec2u(0u), vec2u(0u)));\n}}"
+    );
+    let module = naga::front::wgsl::parse_str(&source).unwrap();
+    let info = Validator::new(ValidationFlags::all(), Capabilities::all())
+        .validate(&module)
+        .unwrap();
+    let options = spv::Options {
+        lang_version: (1, 6),
+        ..Default::default()
+    };
+    let pipeline = spv::PipelineOptions {
+        shader_stage: naga::ShaderStage::Compute,
+        entry_point: "ordinary".into(),
+    };
+    let words = spv::write_vec(&module, &info, &options, Some(&pipeline)).unwrap();
+    let assembly = rspirv::dr::load_words(&words).unwrap().disassemble();
+    assert!(!assembly.contains("PhysicalStorageBuffer"), "{assembly}");
+    assert!(assembly.contains("OpFunctionCall"));
+}
+
 fn error(source: &str, capabilities: Capabilities) -> String {
     let module = naga::front::wgsl::parse_str(source)
         .unwrap_or_else(|e| panic!("{}", e.emit_to_string(source)));
