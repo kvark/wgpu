@@ -3094,10 +3094,7 @@ impl<W: Write> Writer<W> {
                     return Err(Error::UnsupportedCooperativeMatrix);
                 }
                 write!(self.out, "{COOPERATIVE_LOAD_FUNCTION}(")?;
-                write!(self.out, "&")?;
-                self.put_access_chain(data.pointer, context.policies.index, context)?;
-                write!(self.out, ", ")?;
-                self.put_expression(data.stride, context, true)?;
+                self.put_cooperative_data(data, context)?;
                 // Metal's `simdgroup_load` treats its `transpose` flag as
                 // "memory is transposed from the simdgroup_matrix's canonical
                 // layout". On Apple GPUs that canonical layout is row-major,
@@ -3386,6 +3383,46 @@ impl<W: Write> Writer<W> {
         }
 
         Ok(check_written)
+    }
+
+    fn put_cooperative_data(
+        &mut self,
+        data: &crate::CooperativeData,
+        context: &ExpressionContext,
+    ) -> BackendResult {
+        let pointer_ty = context.resolve_type(data.pointer);
+        let base = pointer_ty.pointer_base_type().unwrap();
+        let base_ty = base.inner_with(&context.module.types);
+        let vector_size = match *base_ty {
+            crate::TypeInner::Vector { size, .. } => Some(size),
+            _ => None,
+        };
+        if vector_size.is_some() {
+            let space = pointer_ty.pointer_space().unwrap();
+            let space_name = space.to_msl_name().unwrap_or_default();
+            let const_qualifier = if space.access().contains(crate::StorageAccess::STORE) {
+                ""
+            } else {
+                "const "
+            };
+            let scalar_name = base_ty.scalar().unwrap().to_msl_name();
+            write!(
+                self.out,
+                "reinterpret_cast<{const_qualifier}{space_name} {scalar_name}*>("
+            )?;
+        }
+        write!(self.out, "&")?;
+        self.put_access_chain(data.pointer, context.policies.index, context)?;
+        if vector_size.is_some() {
+            write!(self.out, ")")?;
+        }
+        write!(self.out, ", ")?;
+        self.put_expression(data.stride, context, vector_size.is_none())?;
+        if let Some(size) = vector_size {
+            // Cooperative strides count pointee elements; Metal counts scalars.
+            write!(self.out, " * {}", size as u32)?;
+        }
+        Ok(())
     }
 
     /// Write the access chain `chain`.
@@ -4460,14 +4497,8 @@ impl<W: Write> Writer<W> {
                 crate::Statement::CooperativeStore { target, ref data } => {
                     write!(self.out, "{level}simdgroup_store(")?;
                     self.put_expression(target, &context.expression, true)?;
-                    write!(self.out, ", &")?;
-                    self.put_access_chain(
-                        data.pointer,
-                        context.expression.policies.index,
-                        &context.expression,
-                    )?;
                     write!(self.out, ", ")?;
-                    self.put_expression(data.stride, &context.expression, true)?;
+                    self.put_cooperative_data(data, &context.expression)?;
                     // See the comment in `CooperativeLoad` above: WGSL's
                     // row_major flag is negated when emitting Metal's
                     // `transpose` flag, so a col-major store (row_major=false)
