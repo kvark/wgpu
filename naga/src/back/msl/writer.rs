@@ -4149,9 +4149,13 @@ impl<W: Write> Writer<W> {
                 crate::Statement::Kill => {
                     writeln!(self.out, "{level}{NAMESPACE}::discard_fragment();")?;
                 }
-                crate::Statement::ControlBarrier(flags)
-                | crate::Statement::MemoryBarrier(flags) => {
+                crate::Statement::ControlBarrier(flags) => {
                     self.write_barrier(flags, level)?;
+                }
+                crate::Statement::MemoryBarrier(_) => {
+                    return Err(Error::CapabilityNotSupported(
+                        valid::Capabilities::MEMORY_FENCE,
+                    ));
                 }
                 crate::Statement::Store { pointer, value } => {
                     self.put_store(pointer, value, level, context)?

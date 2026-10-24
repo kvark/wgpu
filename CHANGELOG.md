@@ -42,6 +42,15 @@ Bottom level categories:
 
 ## Unreleased
 
+### Bug Fixes
+
+#### Naga
+
+- Validate the memory-fence capability in IR and reject unsupported Metal fences
+  instead of silently replacing them with threadgroup barriers.
+- Reject SPIR-V non-private/availability/visibility access operands that the
+  importer cannot preserve. SPIR-V output with these operands remains supported.
+
 ### Added/New Features
 
 #### Naga

@@ -1,6 +1,7 @@
 mod bf16;
 mod cooperative_store;
 mod example_wgsl;
+mod memory_fence;
 mod snapshots;
 mod spirv_capabilities;
 mod spirv_debug_info;

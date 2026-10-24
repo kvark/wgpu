@@ -735,10 +735,7 @@ impl<I: Iterator<Item = u32>> Frontend<I> {
                     let result_type_id = self.next()?;
                     let result_id = self.next()?;
                     let pointer_id = self.next()?;
-                    if inst.wc != 4 {
-                        inst.expect(5)?;
-                        let _memory_access = self.next()?;
-                    }
+                    self.parse_memory_access(inst, 4)?;
 
                     let base_lexp = self.lookup_expression.lookup(pointer_id)?;
                     let base_handle = get_expr_handle!(pointer_id, base_lexp);
@@ -773,10 +770,7 @@ impl<I: Iterator<Item = u32>> Frontend<I> {
 
                     let pointer_id = self.next()?;
                     let value_id = self.next()?;
-                    if inst.wc != 3 {
-                        inst.expect(4)?;
-                        let _memory_access = self.next()?;
-                    }
+                    self.parse_memory_access(inst, 3)?;
                     let base_expr = self.lookup_expression.lookup(pointer_id)?;
                     let base_handle = get_expr_handle!(pointer_id, base_expr);
                     let value_expr = self.lookup_expression.lookup(value_id)?;
@@ -2397,13 +2391,7 @@ impl<I: Iterator<Item = u32>> Frontend<I> {
                     inst.expect_at_least(3)?;
                     let target_id = self.next()?;
                     let source_id = self.next()?;
-                    let _memory_access = if inst.wc != 3 {
-                        inst.expect(4)?;
-                        spirv::MemoryAccess::from_bits(self.next()?)
-                            .ok_or(Error::InvalidParameter(Op::CopyMemory))?
-                    } else {
-                        spirv::MemoryAccess::NONE
-                    };
+                    self.parse_memory_access(inst, 3)?;
 
                     // TODO: check if the source and target types are the same?
                     let target = self.lookup_expression.lookup(target_id)?;

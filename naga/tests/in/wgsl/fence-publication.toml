@@ -1,0 +1,6 @@
+capabilities = "MEMORY_FENCE | MEMORY_DECORATION_COHERENT"
+targets = "SPIRV | WGSL"
+
+[spv]
+version = [1, 3]
+use_vulkan_memory_model = true
