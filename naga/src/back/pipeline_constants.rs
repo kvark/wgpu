@@ -696,6 +696,19 @@ fn adjust_expr(new_pos: &HandleVec<Expression, Handle<Expression>>, expr: &mut E
             adjust(&mut data.pointer);
             adjust(&mut data.stride);
         }
+        Expression::CooperativeConvert { ref mut source, .. } => adjust(source),
+        Expression::CooperativeReduce { ref mut matrix, .. } => adjust(matrix),
+        Expression::CooperativeMap {
+            ref mut matrix,
+            ref mut arguments,
+            ..
+        } => {
+            adjust(matrix);
+            for argument in arguments {
+                adjust(argument);
+            }
+        }
+        Expression::CooperativeTensorLoad { ref mut data, .. } => data.adjust(adjust),
         Expression::CooperativeMultiplyAdd {
             ref mut a,
             ref mut b,
@@ -907,6 +920,13 @@ fn adjust_stmt(new_pos: &HandleVec<Expression, Handle<Expression>>, stmt: &mut S
                 crate::RayQueryFunction::Terminate => {}
                 crate::RayQueryFunction::Begin => {}
             }
+        }
+        Statement::CooperativeTensorStore {
+            ref mut target,
+            ref mut data,
+        } => {
+            adjust(target);
+            data.adjust(adjust);
         }
         Statement::CooperativeStore {
             ref mut target,

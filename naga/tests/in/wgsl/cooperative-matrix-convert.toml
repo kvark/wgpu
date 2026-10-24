@@ -1,0 +1,6 @@
+targets = "SPIRV | WGSL"
+capabilities = "COOPERATIVE_MATRIX | COOPERATIVE_MATRIX_WORKGROUP | COOPERATIVE_MATRIX_CONVERSIONS | SHADER_FLOAT16"
+
+[spv]
+debug = false
+version = [1, 6]

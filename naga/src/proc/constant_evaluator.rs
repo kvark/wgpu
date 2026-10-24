@@ -1378,7 +1378,12 @@ impl<'a> ConstantEvaluator<'a> {
             Expression::SubgroupOperationResult { .. } => {
                 Err(ConstantEvaluatorError::SubgroupExpression)
             }
-            Expression::CooperativeLoad { .. } | Expression::CooperativeMultiplyAdd { .. } => {
+            Expression::CooperativeLoad { .. }
+            | Expression::CooperativeConvert { .. }
+            | Expression::CooperativeReduce { .. }
+            | Expression::CooperativeMap { .. }
+            | Expression::CooperativeTensorLoad { .. }
+            | Expression::CooperativeMultiplyAdd { .. } => {
                 Err(ConstantEvaluatorError::CooperativeOperation)
             }
         }

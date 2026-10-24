@@ -404,6 +404,13 @@ impl StatementGraph {
                         },
                     }
                 }
+                S::CooperativeTensorStore { target, ref data } => {
+                    self.dependencies.push((id, target, "target"));
+                    for operand in data.operands() {
+                        self.dependencies.push((id, operand, "tensor"));
+                    }
+                    "CoopStoreTensor"
+                }
                 S::CooperativeStore { target, data } => {
                     self.dependencies.push((id, target, "target"));
                     self.dependencies.push((id, data.pointer, "pointer"));
@@ -789,6 +796,30 @@ fn write_function_expressions(
                 edges.insert("b", b);
                 edges.insert("c", c);
                 ("cooperativeMultiplyAdd".into(), 4)
+            }
+            E::CooperativeTensorLoad { ref data, .. } => {
+                edges.insert("pointer", data.pointer);
+                edges.insert("dimensions", data.dimensions);
+                edges.insert("strides", data.strides);
+                edges.insert("offset", data.offset);
+                ("coopLoadTensor".into(), 4)
+            }
+            E::CooperativeConvert { source, .. } => {
+                edges.insert("source", source);
+                ("coopConvert".into(), 4)
+            }
+            E::CooperativeReduce { matrix, .. } => {
+                edges.insert("matrix", matrix);
+                ("coopReduce".into(), 4)
+            }
+            E::CooperativeMap {
+                matrix,
+                ref arguments,
+                ..
+            } => {
+                edges.insert("matrix", matrix);
+                payload = Some(Payload::Arguments(arguments));
+                ("coopMap".into(), 4)
             }
         };
 

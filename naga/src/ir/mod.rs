@@ -1581,6 +1581,52 @@ pub struct CooperativeData {
     pub row_major: bool,
 }
 
+/// A two-dimensional tensor, addressed in outer/inner memory order.
+///
+/// `pointer` points to a storage array of scalars. `dimensions` and `strides`
+/// are `vec2<u32>` (strides in elements); `offset` is `vec2<i32>`.
+/// Out-of-tensor loads return zero and stores are discarded.
+///
+/// Embedders must guarantee a 16-byte aligned base and sufficient allocation
+/// for the declared dimensions and strides. Tensor bounds are not buffer bounds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serialize", derive(Serialize))]
+#[cfg_attr(feature = "deserialize", derive(Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+pub struct CooperativeTensorData {
+    pub pointer: Handle<Expression>,
+    pub dimensions: Handle<Expression>,
+    pub strides: Handle<Expression>,
+    pub offset: Handle<Expression>,
+    pub row_major: bool,
+}
+
+impl CooperativeTensorData {
+    pub(crate) const fn operands(&self) -> [Handle<Expression>; 4] {
+        [self.pointer, self.dimensions, self.strides, self.offset]
+    }
+
+    pub(crate) fn adjust(&mut self, mut adjust: impl FnMut(&mut Handle<Expression>)) {
+        adjust(&mut self.pointer);
+        adjust(&mut self.dimensions);
+        adjust(&mut self.strides);
+        adjust(&mut self.offset);
+    }
+}
+
+/// Pure block decoders. Functions receive `(block, block_coord, element_coord)`.
+/// The block is passed by value; coordinates are `vec2<u32>`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serialize", derive(Serialize))]
+#[cfg_attr(feature = "deserialize", derive(Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+pub struct CooperativeTensorDecode {
+    pub block_size: [u32; 2],
+    pub function: Handle<Function>,
+    /// Optional equivalent decoder returning `vec2` or `vec4` components.
+    pub vector_function: Option<Handle<Function>>,
+}
+
 /// An expression that can be evaluated to obtain a value.
 ///
 /// This is a Single Static Assignment (SSA) scheme similar to SPIR-V.
@@ -1941,6 +1987,44 @@ pub enum Expression {
         b: Handle<Expression>,
         c: Handle<Expression>,
     },
+    /// Convert component type and/or accumulator use, optionally transposing C to B.
+    CooperativeConvert {
+        ty: Handle<Type>,
+        source: Handle<Expression>,
+        transpose: bool,
+    },
+    /// Load a tile with zero padding outside the declared tensor.
+    CooperativeTensorLoad {
+        ty: Handle<Type>,
+        data: CooperativeTensorData,
+        #[cfg_attr(feature = "deserialize", serde(default))]
+        decode: Option<CooperativeTensorDecode>,
+    },
+    /// Reduce an accumulator matrix with a pure, commutative/associative callback.
+    CooperativeReduce {
+        ty: Handle<Type>,
+        matrix: Handle<Expression>,
+        mode: CooperativeReduceMode,
+        function: Handle<Function>,
+    },
+    /// Apply a pure callback to matrix elements and optional uniform/matrix operands.
+    CooperativeMap {
+        matrix: Handle<Expression>,
+        function: Handle<Function>,
+        arguments: Vec<Handle<Expression>>,
+    },
+}
+
+/// The elements combined by a cooperative matrix reduction.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serialize", derive(Serialize))]
+#[cfg_attr(feature = "deserialize", derive(Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+pub enum CooperativeReduceMode {
+    Rows,
+    Columns,
+    All,
+    Quad,
 }
 
 /// The value of the switch case.
@@ -2396,6 +2480,11 @@ pub enum Statement {
     CooperativeStore {
         target: Handle<Expression>,
         data: CooperativeData,
+    },
+    /// Store a tile, discarding elements outside the declared tensor.
+    CooperativeTensorStore {
+        target: Handle<Expression>,
+        data: CooperativeTensorData,
     },
     /// This corresponds to `debugPrintf` in WGSL when the `wgpu_debug_printf` extension is enabled.
     DebugPrintf {

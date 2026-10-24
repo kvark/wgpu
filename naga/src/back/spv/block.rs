@@ -2,7 +2,7 @@
 Implementations for `BlockContext` methods.
 */
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 use arrayvec::ArrayVec;
 use spirv::Word;
@@ -808,6 +808,19 @@ impl BlockContext<'_> {
             self.writer.request_type_capabilities(result_type)?;
         }
         let result_type_id = self.get_expression_type_id(&self.fun_info[expr_handle].ty);
+        if self.function.decode_accesses.contains(expr_handle) {
+            let access_uses = self
+                .function
+                .access_uses
+                .get(&expr_handle)
+                .copied()
+                .unwrap_or(0);
+            if access_uses != self.fun_info[expr_handle].ref_count {
+                let id = self.write_decode_load(expr_handle, block, result_type_id)?;
+                self.cached[expr_handle] = id;
+            }
+            return Ok(());
+        }
         let id = match self.ir_function.expressions[expr_handle] {
             crate::Expression::Literal(literal) => self.writer.get_constant_scalar(literal),
             crate::Expression::Constant(handle) => {
@@ -925,7 +938,7 @@ impl BlockContext<'_> {
                                 // can do is spill the value to a new temporary variable,
                                 // at which point we can get a pointer to that and just
                                 // use `OpAccessChain` in the usual way.
-                                self.spill_to_internal_variable(base, block);
+                                self.spill_to_internal_variable(base, block)?;
 
                                 // Since the base was spilled, mark this access to it as
                                 // spilled, too.
@@ -2273,6 +2286,126 @@ impl BlockContext<'_> {
                         ),
                 }
             }
+            crate::Expression::CooperativeTensorLoad {
+                ty,
+                ref data,
+                ref decode,
+            } => {
+                let matrix_ty = self.ir_module.types[ty].inner.clone();
+                let (pointer, layout, view) =
+                    self.write_cooperative_tensor(data, &matrix_ty, decode.as_ref(), block)?;
+                let id = self.gen_id();
+                let zero = self.writer.get_constant_null(result_type_id);
+                let mut instruction = Instruction::new(spirv::Op::CooperativeMatrixLoadTensorNV);
+                instruction.set_type(result_type_id);
+                instruction.set_result(id);
+                instruction.add_operands([pointer, zero, layout]);
+                self.finish_tensor_instruction(
+                    &mut instruction,
+                    data.pointer,
+                    AccessKind::Load,
+                    view,
+                    decode.as_ref(),
+                );
+                block.body.push(instruction);
+                id
+            }
+            crate::Expression::CooperativeConvert {
+                ty,
+                source,
+                transpose,
+            } => {
+                if self.writer.lang_version() < (1, 6) {
+                    return Err(Error::SpirvVersionTooLow(1, 6));
+                }
+                self.writer.require_any(
+                    "cooperative matrix conversions",
+                    &[spirv::Capability::CooperativeMatrixConversionsNV],
+                )?;
+                self.writer.use_extension("SPV_NV_cooperative_matrix2");
+                let source_inner = self.fun_info[source].ty.inner_with(&self.ir_module.types);
+                let crate::TypeInner::CooperativeMatrix { scalar, .. } = *source_inner else {
+                    unreachable!()
+                };
+                let crate::TypeInner::CooperativeMatrix {
+                    scalar: dst_scalar, ..
+                } = self.ir_module.types[ty].inner
+                else {
+                    unreachable!()
+                };
+                let source_id = self.cached[source];
+                if !transpose && *source_inner == self.ir_module.types[ty].inner {
+                    source_id
+                } else {
+                    let op = if transpose {
+                        spirv::Op::CooperativeMatrixTransposeNV
+                    } else if scalar != dst_scalar {
+                        spirv::Op::FConvert
+                    } else {
+                        spirv::Op::CooperativeMatrixConvertNV
+                    };
+                    let id = self.gen_id();
+                    block
+                        .body
+                        .push(Instruction::unary(op, result_type_id, id, source_id));
+                    id
+                }
+            }
+            crate::Expression::CooperativeReduce {
+                matrix,
+                mode,
+                function,
+                ..
+            } => {
+                if self.writer.lang_version() < (1, 6) {
+                    return Err(Error::SpirvVersionTooLow(1, 6));
+                }
+                self.writer.require_any(
+                    "cooperative matrix reductions",
+                    &[spirv::Capability::CooperativeMatrixReductionsNV],
+                )?;
+                self.writer.use_extension("SPV_NV_cooperative_matrix2");
+                let mask = match mode {
+                    crate::CooperativeReduceMode::Rows => 1,
+                    crate::CooperativeReduceMode::Columns => 2,
+                    crate::CooperativeReduceMode::All => 3,
+                    crate::CooperativeReduceMode::Quad => 4,
+                };
+                let id = self.gen_id();
+                let mut instruction = Instruction::new(spirv::Op::CooperativeMatrixReduceNV);
+                instruction.set_type(result_type_id);
+                instruction.set_result(id);
+                instruction.add_operands([
+                    self.cached[matrix],
+                    mask,
+                    self.writer.lookup_function[&function],
+                ]);
+                block.body.push(instruction);
+                id
+            }
+            crate::Expression::CooperativeMap {
+                matrix,
+                function,
+                ref arguments,
+            } => {
+                if self.writer.lang_version() < (1, 6) {
+                    return Err(Error::SpirvVersionTooLow(1, 6));
+                }
+                self.writer.require_any(
+                    "cooperative matrix per-element operations",
+                    &[spirv::Capability::CooperativeMatrixPerElementOperationsNV],
+                )?;
+                self.writer.use_extension("SPV_NV_cooperative_matrix2");
+                let id = self.gen_id();
+                let mut instruction = Instruction::new(spirv::Op::CooperativeMatrixPerElementOpNV);
+                instruction.set_type(result_type_id);
+                instruction.set_result(id);
+                instruction
+                    .add_operands([self.cached[matrix], self.writer.lookup_function[&function]]);
+                instruction.add_operands(arguments.iter().map(|&argument| self.cached[argument]));
+                block.body.push(instruction);
+                id
+            }
             crate::Expression::CooperativeMultiplyAdd { a, b, c } => {
                 self.writer.require_any(
                     "CooperativeMatrix",
@@ -2295,6 +2428,167 @@ impl BlockContext<'_> {
 
         self.cached[expr_handle] = id;
         Ok(())
+    }
+
+    fn write_cooperative_tensor(
+        &mut self,
+        data: &crate::CooperativeTensorData,
+        matrix_ty: &crate::TypeInner,
+        decode: Option<&crate::CooperativeTensorDecode>,
+        block: &mut Block,
+    ) -> Result<(Word, Word, Option<Word>), Error> {
+        if self.writer.lang_version() < (1, 6) {
+            return Err(Error::SpirvVersionTooLow(1, 6));
+        }
+        self.writer.require_any(
+            "tensor addressing",
+            &[spirv::Capability::TensorAddressingNV],
+        )?;
+        self.writer.require_any(
+            "cooperative tensor addressing",
+            &[spirv::Capability::CooperativeMatrixTensorAddressingNV],
+        )?;
+        self.writer.use_extension("SPV_NV_cooperative_matrix2");
+        self.writer.use_extension("SPV_NV_tensor_addressing");
+        let crate::TypeInner::CooperativeMatrix { columns, rows, .. } = *matrix_ty else {
+            unreachable!()
+        };
+        let pointer =
+            match self.write_access_chain(data.pointer, block, AccessTypeAdjustment::None)? {
+                ExpressionPointer::Ready { pointer_id } => pointer_id,
+                ExpressionPointer::Conditional { .. } => {
+                    return Err(Error::FeatureNotImplemented(
+                        "tensor access through a conditionally in-bounds array pointer",
+                    ))
+                }
+            };
+        let crate::TypeInner::Pointer { base, .. } = *self.fun_info[data.pointer]
+            .ty
+            .inner_with(&self.ir_module.types)
+        else {
+            unreachable!()
+        };
+        let crate::TypeInner::Array { base: element, .. } = self.ir_module.types[base].inner else {
+            unreachable!()
+        };
+        let element_ty = self.get_type_id(LookupType::Handle(element));
+        let pointer_ty = self.get_pointer_type_id(element_ty, spirv::StorageClass::StorageBuffer);
+        let element_pointer = self.gen_id();
+        let zero = self.get_index_constant(0);
+        block.body.push(Instruction::access_chain(
+            pointer_ty,
+            element_pointer,
+            pointer,
+            &[zero],
+        ));
+
+        let uint_ty = self.get_numeric_type_id(NumericType::Scalar(crate::Scalar::U32));
+        let int_ty = self.get_numeric_type_id(NumericType::Scalar(crate::Scalar::I32));
+        let mut components = [[0; 2]; 3];
+        for (ids, (operand, ty)) in components.iter_mut().zip([
+            (data.dimensions, uint_ty),
+            (data.strides, uint_ty),
+            (data.offset, int_ty),
+        ]) {
+            for (axis, component) in ids.iter_mut().enumerate() {
+                *component = self.gen_id();
+                block.body.push(Instruction::composite_extract(
+                    ty,
+                    *component,
+                    self.cached[operand],
+                    &[axis as u32],
+                ));
+            }
+        }
+        let layout_ty = self.get_type_id(LocalType::TensorLayout2d.into());
+        let mut layout = self.gen_id();
+        let mut create = Instruction::new(spirv::Op::CreateTensorLayoutNV);
+        create.set_type(layout_ty);
+        create.set_result(layout);
+        block.body.push(create);
+        if let Some(decode) = decode {
+            let id = self.gen_id();
+            let mut instruction = Instruction::new(spirv::Op::TensorLayoutSetBlockSizeNV);
+            instruction.set_type(layout_ty);
+            instruction.set_result(id);
+            instruction.add_operand(layout);
+            for size in decode.block_size {
+                let size = self.get_index_constant(size);
+                instruction.add_operand(size);
+            }
+            block.body.push(instruction);
+            layout = id;
+        }
+        let spans = if data.row_major {
+            [rows, columns]
+        } else {
+            [columns, rows]
+        };
+        let spans = spans.map(|span| self.get_index_constant(span));
+        for (op, operands) in [
+            (spirv::Op::TensorLayoutSetDimensionNV, &components[0][..]),
+            (spirv::Op::TensorLayoutSetStrideNV, &components[1][..]),
+            (
+                spirv::Op::TensorLayoutSliceNV,
+                &[components[2][0], spans[0], components[2][1], spans[1]][..],
+            ),
+        ] {
+            let id = self.gen_id();
+            let mut instruction = Instruction::new(op);
+            instruction.set_type(layout_ty);
+            instruction.set_result(id);
+            instruction.add_operand(layout);
+            instruction.add_operands(operands.iter().copied());
+            block.body.push(instruction);
+            layout = id;
+        }
+        let view = if data.row_major {
+            None
+        } else {
+            let ty = self.get_type_id(LocalType::TensorViewTranspose2d.into());
+            let id = self.gen_id();
+            let mut instruction = Instruction::new(spirv::Op::CreateTensorViewNV);
+            instruction.set_type(ty);
+            instruction.set_result(id);
+            block.body.push(instruction);
+            Some(id)
+        };
+        Ok((element_pointer, layout, view))
+    }
+
+    fn finish_tensor_instruction(
+        &mut self,
+        instruction: &mut Instruction,
+        pointer: Handle<crate::Expression>,
+        access: AccessKind,
+        view: Option<Word>,
+        decode: Option<&crate::CooperativeTensorDecode>,
+    ) {
+        let memory = self.coop_memory_operands(pointer, access);
+        if memory.is_none() {
+            instruction.add_operand(0);
+        } else {
+            instruction.add_memory_operands(memory);
+        }
+        instruction.add_operand(
+            u32::from(view.is_some())
+                | if decode.is_some() { 2 } else { 0 }
+                | if decode.is_some_and(|decode| decode.vector_function.is_some()) {
+                    4
+                } else {
+                    0
+                },
+        );
+        if let Some(view) = view {
+            instruction.add_operand(view);
+        }
+        if let Some(decode) = decode {
+            for function in core::iter::once(decode.function).chain(decode.vector_function) {
+                instruction.add_operand(
+                    self.writer.wrapped_functions[&WrappedFunction::CooperativeDecode(function)],
+                );
+            }
+        }
     }
 
     /// Helper which focuses on generating the `As` expressions and the various conversions
@@ -2865,7 +3159,12 @@ impl BlockContext<'_> {
         }
     }
 
-    fn copy_logical(&mut self, value_id: Word, result_type_id: Word, block: &mut Block) -> Word {
+    pub(super) fn copy_logical(
+        &mut self,
+        value_id: Word,
+        result_type_id: Word,
+        block: &mut Block,
+    ) -> Word {
         let result_id = self.gen_id();
         block.body.push(Instruction::unary(
             spirv::Op::CopyLogical,
@@ -2899,6 +3198,63 @@ impl BlockContext<'_> {
         match self.layoutless_workgroup_type_id(base) {
             Some(wg_type_id) => self.copy_logical(value_id, wg_type_id, block),
             None => value_id,
+        }
+    }
+
+    fn write_decode_load(
+        &mut self,
+        access: Handle<crate::Expression>,
+        block: &mut Block,
+        result_type_id: Word,
+    ) -> Result<Word, Error> {
+        let types = &self.ir_module.types;
+        let mut pending = vec![self.fun_info[access].ty.inner_with(types)];
+        let mut seen = crate::arena::HandleSet::for_arena(types);
+        let mut alignment = 1;
+        while let Some(ty) = pending.pop() {
+            match *ty {
+                crate::TypeInner::Struct { ref members, .. } => {
+                    for member in members {
+                        if seen.insert(member.ty) {
+                            pending.push(&types[member.ty].inner);
+                        }
+                    }
+                }
+                crate::TypeInner::Array { base, .. } => {
+                    if seen.insert(base) {
+                        pending.push(&types[base].inner);
+                    }
+                }
+                _ => alignment = alignment.max(u32::from(ty.scalar_width().unwrap())),
+            }
+        }
+        let load = |id_gen: &mut IdGenerator, block: &mut Block, pointer_id| {
+            let id = id_gen.next();
+            let mut instruction = Instruction::load(result_type_id, id, pointer_id, None);
+            instruction.add_operand(spirv::MemoryAccess::ALIGNED.bits());
+            instruction.add_operand(alignment);
+            block.body.push(instruction);
+            id
+        };
+        match self.write_access_chain(
+            access,
+            block,
+            AccessTypeAdjustment::IntroducePointer(spirv::StorageClass::PhysicalStorageBuffer),
+        )? {
+            ExpressionPointer::Ready { pointer_id } => {
+                Ok(load(&mut self.writer.id_gen, block, pointer_id))
+            }
+            ExpressionPointer::Conditional { condition, access } => Ok(self
+                .write_conditional_indexed_load(
+                    result_type_id,
+                    condition,
+                    block,
+                    |id_gen, block| {
+                        let pointer_id = access.result_id.unwrap();
+                        block.body.push(access);
+                        load(id_gen, block, pointer_id)
+                    },
+                )),
         }
     }
 
@@ -2950,6 +3306,14 @@ impl BlockContext<'_> {
                     workgroup_load_type_id = self.layoutless_workgroup_type_id(pointer_base_type);
                 }
             };
+            if matches!(
+                access_type_adjustment,
+                AccessTypeAdjustment::IntroducePointer(spirv::StorageClass::Function)
+            ) {
+                if let crate::proc::TypeResolution::Handle(ty) = self.fun_info[pointer].ty {
+                    workgroup_load_type_id = self.layoutless_workgroup_type_id(ty);
+                }
+            }
 
             let (load_type_id, access_type_adjustment) =
                 match (wrapped_load.as_ref(), workgroup_load_type_id) {
@@ -3042,9 +3406,15 @@ impl BlockContext<'_> {
         }
     }
 
-    fn spill_to_internal_variable(&mut self, base: Handle<crate::Expression>, block: &mut Block) {
+    fn spill_to_internal_variable(
+        &mut self,
+        base: Handle<crate::Expression>,
+        block: &mut Block,
+    ) -> Result<(), Error> {
         use indexmap::map::Entry;
 
+        self.writer
+            .prepare_spill_type(&self.fun_info[base].ty, self.ir_module)?;
         // Make sure we have an internal variable to spill `base` to.
         let spill_variable_id = match self.function.spilled_composites.entry(base) {
             Entry::Occupied(preexisting) => preexisting.get().id,
@@ -3093,10 +3463,16 @@ impl BlockContext<'_> {
         // variable for `a` has already been declared, but it is still essential
         // that we store `a` into it, so that `a[z]` sees this iteration's value
         // of `a`.
-        let base_id = self.cached[base];
+        let mut base_id = self.cached[base];
+        if let crate::proc::TypeResolution::Handle(ty) = self.fun_info[base].ty {
+            if let Some(storage_type_id) = self.layoutless_workgroup_type_id(ty) {
+                base_id = self.copy_logical(base_id, storage_type_id, block);
+            }
+        }
         block
             .body
             .push(Instruction::store(spill_variable_id, base_id, None));
+        Ok(())
     }
 
     /// Generate an access to a spilled temporary, if necessary.
@@ -4304,6 +4680,25 @@ impl BlockContext<'_> {
                     result,
                 } => {
                     self.write_subgroup_gather(mode, argument, result, &mut block)?;
+                }
+                Statement::CooperativeTensorStore { target, ref data } => {
+                    let matrix_ty = self.fun_info[target]
+                        .ty
+                        .inner_with(&self.ir_module.types)
+                        .clone();
+                    let (pointer, layout, view) =
+                        self.write_cooperative_tensor(data, &matrix_ty, None, &mut block)?;
+                    let mut instruction =
+                        Instruction::new(spirv::Op::CooperativeMatrixStoreTensorNV);
+                    instruction.add_operands([pointer, self.cached[target], layout]);
+                    self.finish_tensor_instruction(
+                        &mut instruction,
+                        data.pointer,
+                        AccessKind::Store,
+                        view,
+                        None,
+                    );
+                    block.body.push(instruction);
                 }
                 Statement::CooperativeStore { target, ref data } => {
                     let target_id = self.cached[target];

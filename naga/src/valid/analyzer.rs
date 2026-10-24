@@ -869,6 +869,32 @@ impl FunctionInfo {
                 non_uniform_result: self.add_ref(a).or(self.add_ref(b).or(self.add_ref(c))),
                 requirements: UniformityRequirements::COOP_OPS,
             },
+            E::CooperativeConvert { source, .. } => Uniformity {
+                non_uniform_result: self.add_ref(source),
+                requirements: UniformityRequirements::COOP_OPS,
+            },
+            E::CooperativeReduce { matrix, .. } => Uniformity {
+                non_uniform_result: self.add_ref(matrix),
+                // The operand graph checks both operands and control flow at the matrix scope.
+                requirements: UniformityRequirements::empty(),
+            },
+            E::CooperativeMap {
+                matrix,
+                ref arguments,
+                ..
+            } => Uniformity {
+                non_uniform_result: core::iter::once(matrix)
+                    .chain(arguments.iter().copied())
+                    .fold(None, |result, operand| self.add_ref(operand).or(result)),
+                requirements: UniformityRequirements::empty(),
+            },
+            E::CooperativeTensorLoad { ref data, .. } => Uniformity {
+                non_uniform_result: data
+                    .operands()
+                    .into_iter()
+                    .fold(None, |result, operand| self.add_ref(operand).or(result)),
+                requirements: UniformityRequirements::COOP_OPS,
+            },
         };
 
         let ty = resolve_context.resolve(expression, |h| Ok(&self[h].ty))?;
@@ -1212,6 +1238,21 @@ impl FunctionInfo {
                     }
                     FunctionUniformity::new()
                 }
+                S::CooperativeTensorStore { target, ref data } => {
+                    let mut non_uniform_result = self
+                        .add_ref(target)
+                        .or(self.add_ref_impl(data.pointer, GlobalUse::WRITE));
+                    for operand in [data.dimensions, data.strides, data.offset] {
+                        non_uniform_result = self.add_ref(operand).or(non_uniform_result);
+                    }
+                    FunctionUniformity {
+                        result: Uniformity {
+                            non_uniform_result,
+                            requirements: UniformityRequirements::COOP_OPS,
+                        },
+                        exit: ExitFlags::empty(),
+                    }
+                }
                 S::CooperativeStore { target, ref data } => FunctionUniformity {
                     result: Uniformity {
                         non_uniform_result: self
@@ -1290,7 +1331,7 @@ impl ModuleInfo {
             available_stages: ShaderStages::all(),
             uniformity: Uniformity::new(),
             may_kill: false,
-            uniformity_graph: (self.cooperative_matrix_usage.workgroup
+            uniformity_graph: (self.cooperative_matrix_usage.any
                 && flags.contains(ValidationFlags::CONTROL_FLOW_UNIFORMITY))
             .then(|| {
                 Box::new(operand_uniformity::Graph::new(

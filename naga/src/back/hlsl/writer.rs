@@ -3069,7 +3069,9 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 }
                 writeln!(self.out, ");")?;
             }
-            Statement::CooperativeStore { .. } => unimplemented!(),
+            Statement::CooperativeStore { .. } | Statement::CooperativeTensorStore { .. } => {
+                unimplemented!()
+            }
             Statement::RayPipelineFunction(_) => unreachable!(),
             Statement::DebugPrintf { .. } => unimplemented!(),
         }
@@ -4679,6 +4681,10 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             // Not supported yet
             Expression::RayQueryVertexPositions { .. }
             | Expression::CooperativeLoad { .. }
+            | Expression::CooperativeConvert { .. }
+            | Expression::CooperativeReduce { .. }
+            | Expression::CooperativeMap { .. }
+            | Expression::CooperativeTensorLoad { .. }
             | Expression::CooperativeMultiplyAdd { .. } => {
                 unreachable!()
             }

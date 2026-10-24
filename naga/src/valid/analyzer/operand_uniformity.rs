@@ -8,18 +8,21 @@ use crate::{Expression as E, Handle, Statement as S, TypeInner as Ti};
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Dependencies {
     divergent: bool,
+    subgroup_divergent: bool,
     arguments: BTreeSet<u32>,
 }
 
 impl Dependencies {
     fn merge(&mut self, other: &Self) {
         self.divergent |= other.divergent;
+        self.subgroup_divergent |= other.subgroup_divergent;
         self.arguments.extend(&other.arguments);
     }
 
     fn substitute(&self, arguments: &[Handle<E>], expressions: &[Self]) -> Self {
         let mut result = Self {
             divergent: self.divergent,
+            subgroup_divergent: self.subgroup_divergent,
             ..Self::default()
         };
         for &index in &self.arguments {
@@ -34,12 +37,15 @@ pub(super) struct Summary {
     result: Dependencies,
     required: Dependencies,
     cooperative: bool,
+    required_subgroup: Dependencies,
+    cooperative_subgroup: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 enum Source {
     #[default]
     Uniform,
+    SubgroupUniform,
     NonUniform,
     Argument(u32),
     Local(Handle<crate::LocalVariable>),
@@ -91,6 +97,8 @@ impl Graph {
             E::FunctionArgument(index) => {
                 if uniform_builtin(&context.arguments[index as usize].binding) {
                     Source::Uniform
+                } else if subgroup_uniform_builtin(&context.arguments[index as usize].binding) {
+                    Source::SubgroupUniform
                 } else {
                     Source::NonUniform
                 }
@@ -102,6 +110,10 @@ impl Graph {
                     {
                         if uniform_builtin(&members[index as usize].binding) {
                             dependencies.references.clear();
+                        } else if subgroup_uniform_builtin(&members[index as usize].binding) {
+                            dependencies.references.clear();
+                            dependencies.source = Source::SubgroupUniform;
+                            return;
                         }
                     }
                 }
@@ -143,6 +155,10 @@ impl Graph {
             | E::As { .. }
             | E::ArrayLength(_)
             | E::CooperativeLoad { .. }
+            | E::CooperativeConvert { .. }
+            | E::CooperativeReduce { .. }
+            | E::CooperativeMap { .. }
+            | E::CooperativeTensorLoad { .. }
             | E::CooperativeMultiplyAdd { .. } => Source::Uniform,
             _ => Source::NonUniform,
         };
@@ -180,6 +196,17 @@ const fn uniform_builtin(binding: &Option<crate::Binding>) -> bool {
     )
 }
 
+const fn subgroup_uniform_builtin(binding: &Option<crate::Binding>) -> bool {
+    matches!(
+        *binding,
+        Some(crate::Binding::BuiltIn(
+            crate::BuiltIn::SubgroupId
+                | crate::BuiltIn::SubgroupSize
+                | crate::BuiltIn::NumSubgroups
+        ))
+    )
+}
+
 impl Analysis<'_> {
     fn root(&self, pointer: Handle<E>) -> Handle<E> {
         root(&self.function.expressions, pointer)
@@ -189,8 +216,13 @@ impl Analysis<'_> {
         let expression = &self.graph.expressions[handle.index()];
         let mut result = match expression.source {
             Source::Uniform => Dependencies::default(),
+            Source::SubgroupUniform => Dependencies {
+                divergent: true,
+                ..Dependencies::default()
+            },
             Source::NonUniform => Dependencies {
                 divergent: true,
+                subgroup_divergent: true,
                 ..Dependencies::default()
             },
             Source::Argument(index) => Dependencies {
@@ -211,15 +243,41 @@ impl Analysis<'_> {
         operand: Handle<E>,
         control: &Dependencies,
     ) -> Result<(), WithSpan<FunctionError>> {
-        self.summary.cooperative = true;
+        self.require_at(operand, control, crate::CooperativeScope::Workgroup)
+    }
+
+    fn require_at(
+        &mut self,
+        operand: Handle<E>,
+        control: &Dependencies,
+        scope: crate::CooperativeScope,
+    ) -> Result<(), WithSpan<FunctionError>> {
         let mut dependencies = self.expressions[operand.index()].clone();
         dependencies.merge(control);
-        if dependencies.divergent {
+        let subgroup = scope == crate::CooperativeScope::Subgroup;
+        if if subgroup {
+            dependencies.subgroup_divergent
+        } else {
+            dependencies.divergent
+        } {
             return Err(FunctionError::NonUniformCooperativeOperand(operand)
                 .with_span_handle(operand, &self.function.expressions));
         }
-        self.summary.required.merge(&dependencies);
+        if subgroup {
+            self.summary.cooperative_subgroup = true;
+            self.summary.required_subgroup.merge(&dependencies);
+        } else {
+            self.summary.cooperative = true;
+            self.summary.required.merge(&dependencies);
+        }
         Ok(())
+    }
+
+    fn matrix_scope(&self, expr: Handle<E>) -> crate::CooperativeScope {
+        match *self.info[expr].ty.inner_with(&self.module.types) {
+            Ti::CooperativeMatrix { scope, .. } => scope,
+            _ => unreachable!(),
+        }
     }
 
     fn workgroup_matrix(&self, expr: Handle<E>) -> bool {
@@ -292,6 +350,28 @@ impl Analysis<'_> {
                             } => {
                                 self.require(data.pointer, &control)?;
                                 self.require(data.stride, &control)?;
+                            }
+                            E::CooperativeTensorLoad { ref data, .. } => {
+                                for operand in data.operands() {
+                                    self.require_at(operand, &control, self.matrix_scope(handle))?;
+                                }
+                            }
+                            E::CooperativeConvert { source, .. } => {
+                                self.require_at(source, &control, self.matrix_scope(handle))?;
+                            }
+                            E::CooperativeReduce { matrix, .. } => {
+                                self.require_at(matrix, &control, self.matrix_scope(handle))?;
+                            }
+                            E::CooperativeMap {
+                                matrix,
+                                ref arguments,
+                                ..
+                            } => {
+                                for operand in
+                                    core::iter::once(matrix).chain(arguments.iter().copied())
+                                {
+                                    self.require_at(operand, &control, self.matrix_scope(handle))?;
+                                }
                             }
                             E::CooperativeMultiplyAdd { a, .. } if self.workgroup_matrix(a) => {
                                 self.summary.cooperative = true;
@@ -380,18 +460,40 @@ impl Analysis<'_> {
                         for &index in &summary.required.arguments {
                             self.require(arguments[index as usize], &control)?;
                         }
+                        if summary.cooperative_subgroup {
+                            self.summary.cooperative_subgroup = true;
+                            if control.subgroup_divergent {
+                                return Err(
+                                    FunctionError::NonUniformCooperativeCall(function).with_span()
+                                );
+                            }
+                            self.summary.required_subgroup.merge(&control);
+                        }
+                        for &index in &summary.required_subgroup.arguments {
+                            self.require_at(
+                                arguments[index as usize],
+                                &control,
+                                crate::CooperativeScope::Subgroup,
+                            )?;
+                        }
                     }
                     for &argument in arguments {
                         if let E::LocalVariable(local) =
                             self.function.expressions[self.root(argument)]
                         {
                             self.locals[local.index()].divergent = true;
+                            self.locals[local.index()].subgroup_divergent = true;
                         }
                     }
                 }
                 S::Return { value: Some(value) } => {
                     self.summary.result.merge(&self.expressions[value.index()]);
                     self.summary.result.merge(&control);
+                }
+                S::CooperativeTensorStore { target, ref data } if check => {
+                    for operand in data.operands() {
+                        self.require_at(operand, &control, self.matrix_scope(target))?;
+                    }
                 }
                 S::CooperativeStore { target, ref data }
                     if check && self.workgroup_matrix(target) =>

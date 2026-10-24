@@ -374,6 +374,30 @@ fn write_output_spv_inner(
     let dis = rspirv::dr::load_words(spv.clone())
         .expect("Produced invalid SPIR-V")
         .disassemble();
+    // rspirv 0.13 formats this mask as Rust bitflags, not SPIR-V assembly.
+    let dis: String = dis
+        .split_inclusive('\n')
+        .map(|line| {
+            if line.contains("OpCooperativeMatrixLoadTensorNV ")
+                || line.contains("OpCooperativeMatrixStoreTensorNV ")
+            {
+                line.replace("TensorAddressingOperands(0x0)", "None")
+                    .replace("TensorAddressingOperands(TENSOR_VIEW)", "TensorView")
+                    .replace("TensorAddressingOperands(DECODE_FUNC)", "DecodeFunc")
+                    .replace(
+                        "TensorAddressingOperands(TENSOR_VIEW | DECODE_FUNC)",
+                        "TensorView|DecodeFunc",
+                    )
+            } else if line.contains("OpCooperativeMatrixReduceNV ") {
+                line.replace("CooperativeMatrixReduce(ROW)", "Row")
+                    .replace("CooperativeMatrixReduce(COLUMN)", "Column")
+                    .replace("CooperativeMatrixReduce(ROW | COLUMN)", "Row|Column")
+                    .replace("CooperativeMatrixReduce(_2X2)", "2x2")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect();
     // HACK escape CR/LF if source code is in side.
     let dis = if options.debug_info.is_some() {
         let dis = dis.replace("\\r", "\r");

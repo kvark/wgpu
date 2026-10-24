@@ -827,6 +827,10 @@ impl<'a> ResolveContext<'a> {
                 })
             }
             crate::Expression::CooperativeMultiplyAdd { a: _, b: _, c } => past(c)?.clone(),
+            crate::Expression::CooperativeMap { matrix, .. } => past(matrix)?.clone(),
+            crate::Expression::CooperativeConvert { ty, .. }
+            | crate::Expression::CooperativeTensorLoad { ty, .. }
+            | crate::Expression::CooperativeReduce { ty, .. } => TypeResolution::Handle(ty),
         })
     }
 }

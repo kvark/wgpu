@@ -12,6 +12,11 @@ use alloc::boxed::Box;
 #[derive(Clone, Debug, thiserror::Error)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum ExpressionError {
+    #[error("Invalid cooperative callback {function:?}: {reason}")]
+    InvalidCooperativeCallback {
+        function: Handle<crate::Function>,
+        reason: &'static str,
+    },
     #[error("Used by a statement before it was introduced into the scope by any of the dominating blocks")]
     NotInScope,
     #[error("Base type {0:?} is not compatible with this expression")]
@@ -1490,6 +1495,213 @@ impl super::Validator {
                 }
                 ShaderStages::COMPUTE
             }
+            E::CooperativeTensorLoad {
+                ty,
+                ref data,
+                ref decode,
+            } => {
+                let Ti::CooperativeMatrix { scalar, .. } = module.types[ty].inner else {
+                    return Err(ExpressionError::InvalidCooperativeOperand(data.pointer));
+                };
+                let element = self.validate_cooperative_tensor(
+                    data,
+                    if decode.is_some() { None } else { Some(scalar) },
+                    &module.types,
+                    |handle| &resolver[handle],
+                    crate::StorageAccess::LOAD,
+                )?;
+                if let Some(ref decode) = *decode {
+                    self.validate_tensor_decode(decode, element, scalar, module, mod_info)?;
+                }
+                ShaderStages::COMPUTE
+            }
+            E::CooperativeConvert {
+                ty,
+                source,
+                transpose,
+            } => {
+                if !self
+                    .capabilities
+                    .contains(super::Capabilities::COOPERATIVE_MATRIX_CONVERSIONS)
+                {
+                    return Err(ExpressionError::MissingCapabilities(
+                        super::Capabilities::COOPERATIVE_MATRIX_CONVERSIONS,
+                    ));
+                }
+                let Ti::CooperativeMatrix {
+                    columns,
+                    rows,
+                    scalar,
+                    role,
+                    scope,
+                } = resolver[source]
+                else {
+                    return Err(ExpressionError::InvalidCooperativeOperand(source));
+                };
+                let Ti::CooperativeMatrix {
+                    columns: dst_columns,
+                    rows: dst_rows,
+                    scalar: dst_scalar,
+                    role: dst_role,
+                    scope: dst_scope,
+                } = module.types[ty].inner
+                else {
+                    return Err(ExpressionError::InvalidCooperativeOperand(source));
+                };
+                let valid_role = if transpose {
+                    role == crate::CooperativeRole::C
+                        && dst_role == crate::CooperativeRole::B
+                        && scalar == dst_scalar
+                } else {
+                    role == dst_role
+                        || (role == crate::CooperativeRole::C
+                            && matches!(
+                                dst_role,
+                                crate::CooperativeRole::A | crate::CooperativeRole::B
+                            ))
+                };
+                let (expected_columns, expected_rows) = if transpose {
+                    (rows, columns)
+                } else {
+                    (columns, rows)
+                };
+                if !valid_role
+                    || scope != dst_scope
+                    || dst_columns != expected_columns
+                    || dst_rows != expected_rows
+                    || scalar.kind != crate::ScalarKind::Float
+                    || dst_scalar.kind != crate::ScalarKind::Float
+                {
+                    return Err(ExpressionError::InvalidCooperativeOperand(source));
+                }
+                ShaderStages::COMPUTE
+            }
+            E::CooperativeReduce {
+                ty,
+                matrix,
+                mode,
+                function,
+            } => {
+                if !self
+                    .capabilities
+                    .contains(super::Capabilities::COOPERATIVE_MATRIX_REDUCTIONS)
+                {
+                    return Err(ExpressionError::MissingCapabilities(
+                        super::Capabilities::COOPERATIVE_MATRIX_REDUCTIONS,
+                    ));
+                }
+                let Ti::CooperativeMatrix {
+                    columns,
+                    rows,
+                    scalar,
+                    scope,
+                    role: crate::CooperativeRole::C,
+                } = resolver[matrix]
+                else {
+                    return Err(ExpressionError::InvalidCooperativeOperand(matrix));
+                };
+                let Ti::CooperativeMatrix {
+                    columns: dst_columns,
+                    rows: dst_rows,
+                    scalar: dst_scalar,
+                    scope: dst_scope,
+                    role: crate::CooperativeRole::C,
+                } = module.types[ty].inner
+                else {
+                    return Err(ExpressionError::InvalidCooperativeOperand(matrix));
+                };
+                let dimensions_match = match mode {
+                    crate::CooperativeReduceMode::Rows => rows == dst_rows,
+                    crate::CooperativeReduceMode::Columns => columns == dst_columns,
+                    crate::CooperativeReduceMode::All => true,
+                    crate::CooperativeReduceMode::Quad => {
+                        rows.is_multiple_of(2)
+                            && columns.is_multiple_of(2)
+                            && rows / 2 == dst_rows
+                            && columns / 2 == dst_columns
+                    }
+                };
+                if scalar != dst_scalar || scope != dst_scope || !dimensions_match {
+                    return Err(ExpressionError::InvalidCooperativeOperand(matrix));
+                }
+                let callback = &module.functions[function];
+                if callback.arguments.len() != 2
+                    || callback
+                        .arguments
+                        .iter()
+                        .any(|arg| module.types[arg.ty].inner != Ti::Scalar(scalar))
+                    || callback
+                        .result
+                        .as_ref()
+                        .is_none_or(|result| module.types[result.ty].inner != Ti::Scalar(scalar))
+                {
+                    return Err(ExpressionError::InvalidCooperativeCallback {
+                        function,
+                        reason: "combine callback must take two matrix components and return one",
+                    });
+                }
+                Self::validate_cooperative_callback(function, module, mod_info)?;
+                ShaderStages::COMPUTE
+            }
+            E::CooperativeMap {
+                matrix,
+                function,
+                ref arguments,
+            } => {
+                if !self
+                    .capabilities
+                    .contains(super::Capabilities::COOPERATIVE_MATRIX_PER_ELEMENT_OPERATIONS)
+                {
+                    return Err(ExpressionError::MissingCapabilities(
+                        super::Capabilities::COOPERATIVE_MATRIX_PER_ELEMENT_OPERATIONS,
+                    ));
+                }
+                let Ti::CooperativeMatrix { scalar, .. } = resolver[matrix] else {
+                    return Err(ExpressionError::InvalidCooperativeOperand(matrix));
+                };
+                let callback = &module.functions[function];
+                let invalid =
+                    |reason| ExpressionError::InvalidCooperativeCallback { function, reason };
+                if callback.arguments.len() != 3 + arguments.len()
+                    || callback
+                        .result
+                        .as_ref()
+                        .is_none_or(|result| module.types[result.ty].inner != Ti::Scalar(scalar))
+                {
+                    return Err(invalid(
+                        "per-element callback arity or result type does not match",
+                    ));
+                }
+                if callback.arguments[..2]
+                    .iter()
+                    .any(|arg| module.types[arg.ty].inner != Ti::Scalar(crate::Scalar::U32))
+                    || module.types[callback.arguments[2].ty].inner != Ti::Scalar(scalar)
+                {
+                    return Err(invalid(
+                        "per-element callback starts with (u32 row, u32 column, component)",
+                    ));
+                }
+                for (&argument, parameter) in arguments.iter().zip(&callback.arguments[3..]) {
+                    let argument_ty = &resolver[argument];
+                    let parameter_ty = &module.types[parameter.ty].inner;
+                    if matches!(*argument_ty, Ti::CooperativeMatrix { .. }) {
+                        if *argument_ty != resolver[matrix] || *parameter_ty != Ti::Scalar(scalar) {
+                            return Err(invalid(
+                                "extra matrices must match the input and pass one component",
+                            ));
+                        }
+                    } else if argument_ty != parameter_ty
+                        || !matches!(
+                            *argument_ty,
+                            Ti::Scalar(_) | Ti::Vector { .. } | Ti::Matrix { .. }
+                        )
+                    {
+                        return Err(invalid("extra operands must be matching scalar/vector/matrix values or cooperative matrices"));
+                    }
+                }
+                Self::validate_cooperative_callback(function, module, mod_info)?;
+                ShaderStages::COMPUTE
+            }
             E::CooperativeMultiplyAdd { a, b, c } => {
                 let operand = |operand, expected_role| match resolver[operand] {
                     Ti::CooperativeMatrix {
@@ -1562,6 +1774,61 @@ impl super::Validator {
             }
             _ => Err(ExpressionError::ExpectedGlobalVariable),
         }
+    }
+
+    pub(super) fn validate_cooperative_tensor<'a>(
+        &self,
+        data: &crate::CooperativeTensorData,
+        scalar: Option<crate::Scalar>,
+        types: &UniqueArena<crate::Type>,
+        resolve: impl Fn(Handle<crate::Expression>) -> &'a crate::TypeInner,
+        access: crate::StorageAccess,
+    ) -> Result<Handle<crate::Type>, ExpressionError> {
+        use crate::TypeInner as Ti;
+        if !self
+            .capabilities
+            .contains(super::Capabilities::COOPERATIVE_MATRIX_TENSOR_ADDRESSING)
+        {
+            return Err(ExpressionError::MissingCapabilities(
+                super::Capabilities::COOPERATIVE_MATRIX_TENSOR_ADDRESSING,
+            ));
+        }
+        let Ti::Pointer {
+            base,
+            space: crate::AddressSpace::Storage { access: allowed },
+        } = *resolve(data.pointer)
+        else {
+            return Err(ExpressionError::InvalidPointerType(data.pointer));
+        };
+        let Ti::Array {
+            base: element,
+            stride,
+            ..
+        } = types[base].inner
+        else {
+            return Err(ExpressionError::InvalidPointerType(data.pointer));
+        };
+        if scalar.is_some_and(|scalar| types[element].inner != Ti::Scalar(scalar))
+            || stride != self.layouter[element].to_stride()
+            || !allowed.contains(access)
+        {
+            return Err(ExpressionError::InvalidPointerType(data.pointer));
+        }
+        for (operand, scalar) in [
+            (data.dimensions, crate::Scalar::U32),
+            (data.strides, crate::Scalar::U32),
+            (data.offset, crate::Scalar::I32),
+        ] {
+            if *resolve(operand)
+                != (Ti::Vector {
+                    size: crate::VectorSize::Bi,
+                    scalar,
+                })
+            {
+                return Err(ExpressionError::InvalidVectorType(operand));
+            }
+        }
+        Ok(element)
     }
 
     pub fn validate_literal(&self, literal: crate::Literal) -> Result<(), LiteralError> {

@@ -54,6 +54,26 @@ impl FunctionTracer<'_> {
         // directly by statements, walk the arena to find all
         // expressions used, directly or indirectly.
         self.as_expression().trace_expressions();
+        for (handle, expression) in self.function.expressions.iter() {
+            if !self.expressions_used.contains(handle) {
+                continue;
+            }
+            if let crate::Expression::CooperativeTensorLoad {
+                decode: Some(ref decode),
+                ..
+            } = *expression
+            {
+                self.trace_call(decode.function);
+                if let Some(function) = decode.vector_function {
+                    self.trace_call(function);
+                }
+            }
+            if let crate::Expression::CooperativeReduce { function, .. }
+            | crate::Expression::CooperativeMap { function, .. } = *expression
+            {
+                self.trace_call(function);
+            }
+        }
     }
 
     const fn as_expression(&mut self) -> super::expressions::ExpressionTracer<'_> {

@@ -93,6 +93,23 @@ impl<'iter, 'source> TemplateListIter<'iter, 'source> {
         }
     }
 
+    pub fn u32(
+        &mut self,
+        lowerer: &mut Lowerer<'source, '_>,
+        ctx: &mut ExpressionContext<'source, '_, '_>,
+    ) -> Result<'source, u32> {
+        let expr = self.expect_next("a constant u32 block dimension")?;
+        let span = ctx.ast_expressions.get_span(expr);
+        let ctx = &mut ctx.as_const();
+        let value = lowerer.expression(expr, ctx)?;
+        ctx.get_const_val(value).map_err(|err| {
+            Box::new(match err {
+                crate::proc::ConstValueError::Negative => Error::ExpectedNonNegative(span),
+                _ => Error::ExpectedConstExprConcreteIntegerScalar(span),
+            })
+        })
+    }
+
     pub fn maybe_array_size(
         &mut self,
         lowerer: &mut Lowerer<'source, '_>,

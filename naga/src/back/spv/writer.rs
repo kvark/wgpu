@@ -381,7 +381,11 @@ impl Writer {
         base: Handle<crate::Type>,
         class: spirv::StorageClass,
     ) -> Word {
-        let base_id = self.get_handle_type_id(base);
+        let base_id = if class == spirv::StorageClass::Function {
+            self.type_id_for_space(base, crate::AddressSpace::Function)
+        } else {
+            self.get_handle_type_id(base)
+        };
         self.get_pointer_type_id(base_id, class)
     }
 
@@ -412,7 +416,12 @@ impl Writer {
         resolution: &TypeResolution,
         class: spirv::StorageClass,
     ) -> Word {
-        let resolution_type_id = self.get_expression_type_id(resolution);
+        let resolution_type_id = match *resolution {
+            TypeResolution::Handle(handle) if class == spirv::StorageClass::Function => {
+                self.type_id_for_space(handle, crate::AddressSpace::Function)
+            }
+            _ => self.get_expression_type_id(resolution),
+        };
         self.get_pointer_type_id(resolution_type_id, class)
     }
 
@@ -584,11 +593,29 @@ impl Writer {
         ir_function: &crate::Function,
         info: &FunctionInfo,
         ir_module: &crate::Module,
+        mod_info: &ModuleInfo,
     ) -> Result<(), Error> {
         log::trace!("Generating wrapped functions for {:?}", ir_function.name);
 
         for (expr_handle, expr) in ir_function.expressions.iter() {
             match *expr {
+                crate::Expression::CooperativeTensorLoad {
+                    decode: Some(decode),
+                    ..
+                } => {
+                    self.write_cooperative_decode(decode.function, ir_module, mod_info)?;
+                    if let Some(function) = decode.vector_function {
+                        if !self
+                            .flags
+                            .contains(WriterFlags::COOPERATIVE_MATRIX_DECODE_VECTOR)
+                        {
+                            return Err(Error::FeatureNotImplemented(
+                                "vector decode requires the COOPERATIVE_MATRIX_DECODE_VECTOR writer flag"));
+                        }
+                        self.use_extension("SPV_NV_cooperative_matrix_decode_vector");
+                        self.write_cooperative_decode(function, ir_module, mod_info)?;
+                    }
+                }
                 crate::Expression::Binary { op, left, right } => {
                     let expr_ty_inner = info[expr_handle].ty.inner_with(&ir_module.types);
                     if let Some(expr_ty) = NumericType::from_inner(expr_ty_inner) {
@@ -1295,6 +1322,91 @@ impl Writer {
         Ok(())
     }
 
+    fn write_cooperative_decode(
+        &mut self,
+        callback: Handle<crate::Function>,
+        module: &crate::Module,
+        mod_info: &ModuleInfo,
+    ) -> Result<(), Error> {
+        self.require_any(
+            "cooperative block loads",
+            &[spirv::Capability::CooperativeMatrixBlockLoadsNV],
+        )?;
+        self.require_any(
+            "block decoder pointers",
+            &[spirv::Capability::PhysicalStorageBufferAddresses],
+        )?;
+        self.use_extension("SPV_KHR_physical_storage_buffer");
+        let key = WrappedFunction::CooperativeDecode(callback);
+        if self.wrapped_functions.contains_key(&key) {
+            return Ok(());
+        }
+        let ir = &module.functions[callback];
+        let callback_id =
+            self.write_function(ir, &mod_info[callback], module, None, &None, true)?;
+        let function_id = self.id_gen.next();
+        self.wrapped_functions.insert(key, function_id);
+        let block_ty = ir.arguments[0].ty;
+        let block_type_id = self.get_handle_type_id(block_ty);
+        let pointer_type =
+            self.get_pointer_type_id(block_type_id, spirv::StorageClass::PhysicalStorageBuffer);
+        let coordinate_type = self.get_localtype_id(LocalType::TensorCoordinates2d);
+        let vector_type = self.get_handle_type_id(ir.arguments[1].ty);
+        let uint_type = self.get_u32_type_id();
+        let return_type = self.get_handle_type_id(ir.result.as_ref().unwrap().ty);
+        let function_type = self.get_function_type(LookupFunctionType {
+            parameter_type_ids: vec![pointer_type, coordinate_type, coordinate_type],
+            return_type_id: return_type,
+        });
+        let mut function = Function::default();
+        function.signature = Some(Instruction::function(
+            return_type,
+            function_id,
+            spirv::FunctionControl::empty(),
+            function_type,
+        ));
+        let parameters = [pointer_type, coordinate_type, coordinate_type].map(|ty| {
+            let id = self.id_gen.next();
+            function.parameters.push(FunctionArgument {
+                instruction: Instruction::function_parameter(ty, id),
+                handle_id: 0,
+            });
+            id
+        });
+        self.decorate(parameters[0], spirv::Decoration::Aliased, &[]);
+        let mut block = Block::new(self.id_gen.next());
+        let mut arguments = vec![parameters[0]];
+        for parameter in &parameters[1..] {
+            let components = [0, 1].map(|index| {
+                let id = self.id_gen.next();
+                block.body.push(Instruction::composite_extract(
+                    uint_type,
+                    id,
+                    *parameter,
+                    &[index],
+                ));
+                id
+            });
+            let id = self.id_gen.next();
+            block.body.push(Instruction::composite_construct(
+                vector_type,
+                id,
+                &components,
+            ));
+            arguments.push(id);
+        }
+        let result = self.id_gen.next();
+        block.body.push(Instruction::function_call(
+            return_type,
+            result,
+            callback_id,
+            &arguments,
+        ));
+        function.consume(block, Instruction::return_value(result));
+        function.to_words(&mut self.logical_layout.function_definitions);
+        Ok(())
+    }
+
     fn write_function(
         &mut self,
         ir_function: &crate::Function,
@@ -1302,11 +1414,25 @@ impl Writer {
         ir_module: &crate::Module,
         mut interface: Option<FunctionInterface>,
         debug_info: &Option<DebugInfoInner>,
+        decode: bool,
     ) -> Result<Word, Error> {
-        self.write_wrapped_functions(ir_function, info, ir_module)?;
-
         log::trace!("Generating code for {:?}", ir_function.name);
         let mut function = Function::default();
+        for (handle, expr) in ir_function.expressions.iter() {
+            match *expr {
+                crate::Expression::FunctionArgument(0) if decode => {
+                    function.decode_accesses.insert(handle);
+                }
+                crate::Expression::Access { base, .. }
+                | crate::Expression::AccessIndex { base, .. } => {
+                    *function.access_uses.entry(base).or_insert(0) += 1;
+                    if function.decode_accesses.contains(base) {
+                        function.decode_accesses.insert(handle);
+                    }
+                }
+                _ => {}
+            }
+        }
 
         let prelude_id = self.id_gen.next();
         let mut prelude = Block::new(prelude_id);
@@ -1326,10 +1452,15 @@ impl Writer {
         let mut local_invocation_index_var_id = None;
         let mut local_invocation_index_id = None;
 
-        for argument in ir_function.arguments.iter() {
+        for (index, argument) in ir_function.arguments.iter().enumerate() {
             let class = spirv::StorageClass::Input;
             let handle_ty = ir_module.types[argument.ty].inner.is_handle();
-            let argument_type_id = if handle_ty {
+            let argument_type_id = if decode && index == 0 {
+                self.get_handle_pointer_type_id(
+                    argument.ty,
+                    spirv::StorageClass::PhysicalStorageBuffer,
+                )
+            } else if handle_ty {
                 self.get_handle_pointer_type_id(argument.ty, spirv::StorageClass::UniformConstant)
             } else {
                 self.get_handle_type_id(argument.ty)
@@ -1398,6 +1529,9 @@ impl Writer {
                 ep_context.argument_ids.push(id);
             } else {
                 let argument_id = self.id_gen.next();
+                if decode && index == 0 {
+                    self.decorate(argument_id, spirv::Decoration::Aliased, &[]);
+                }
                 let instruction = Instruction::function_parameter(argument_type_id, argument_id);
                 if self.flags.contains(WriterFlags::DEBUG) {
                     if let Some(ref name) = argument.name {
@@ -1660,7 +1794,16 @@ impl Writer {
                 }
             }
 
-            let init_word = variable.init.map(|constant| context.cached[constant]);
+            let mut init_word = variable.init.map(|constant| context.cached[constant]);
+            let storage_type_id = context
+                .writer
+                .type_id_for_space(variable.ty, crate::AddressSpace::Function);
+            if storage_type_id != context.get_handle_type_id(variable.ty) {
+                if let Some(value) = init_word.take() {
+                    let value = context.copy_logical(value, storage_type_id, &mut prelude);
+                    prelude.body.push(Instruction::store(id, value, None));
+                }
+            }
             let pointer_type_id = context
                 .writer
                 .get_handle_pointer_type_id(variable.ty, spirv::StorageClass::Function);
@@ -1670,10 +1813,7 @@ impl Writer {
                 spirv::StorageClass::Function,
                 init_word.or_else(|| match ir_module.types[variable.ty].inner {
                     crate::TypeInner::RayQuery { .. } => None,
-                    _ => {
-                        let type_id = context.get_handle_type_id(variable.ty);
-                        Some(context.writer.write_constant_null(type_id))
-                    }
+                    _ => Some(context.writer.write_constant_null(storage_type_id)),
                 }),
             );
 
@@ -1741,12 +1881,6 @@ impl Writer {
                     // Cache the `OpVariable` instruction we generated above as
                     // the value of this expression.
                     context.cache_expression_value(handle, &mut prelude)?;
-                }
-                crate::Expression::Access { base, .. }
-                | crate::Expression::AccessIndex { base, .. } => {
-                    // Count references to `base` by `Access` and `AccessIndex`
-                    // instructions. See `access_uses` for details.
-                    *context.function.access_uses.entry(base).or_insert(0) += 1;
                 }
                 _ => {}
             }
@@ -1835,8 +1969,10 @@ impl Writer {
         info: &FunctionInfo,
         ir_module: &crate::Module,
         debug_info: &Option<DebugInfoInner>,
+        mod_info: &ModuleInfo,
     ) -> Result<Word, Error> {
         let mut interface_ids = Vec::new();
+        self.write_wrapped_functions(&entry_point.function, info, ir_module, mod_info)?;
 
         let function_id = self.write_function(
             &entry_point.function,
@@ -1850,6 +1986,7 @@ impl Writer {
                 workgroup_size: entry_point.workgroup_size,
             }),
             debug_info,
+            false,
         )?;
 
         let exec_model = match entry_point.stage {
@@ -2238,6 +2375,29 @@ impl Writer {
                 self.write_cooperative_type_declaration_local(id, coop);
                 return;
             }
+            LocalType::TensorLayout2d => {
+                let dimension = self.get_index_constant(2);
+                let clamp = self.get_index_constant(1);
+                let mut instruction = Instruction::new(spirv::Op::TypeTensorLayoutNV);
+                instruction.set_result(id);
+                instruction.add_operands([dimension, clamp]);
+                instruction
+            }
+            LocalType::TensorViewTranspose2d => {
+                let dimension = self.get_index_constant(2);
+                let has_dimensions = self.get_constant_scalar(crate::Literal::Bool(false));
+                let zero = self.get_index_constant(0);
+                let one = self.get_index_constant(1);
+                let mut instruction = Instruction::new(spirv::Op::TypeTensorViewNV);
+                instruction.set_result(id);
+                instruction.add_operands([dimension, has_dimensions, one, zero]);
+                instruction
+            }
+            LocalType::TensorCoordinates2d => {
+                let uint = self.get_u32_type_id();
+                let count = self.get_index_constant(2);
+                Instruction::type_array(id, uint, count)
+            }
             LocalType::Pointer { base, class } => Instruction::type_pointer(id, class, base),
             LocalType::Image(image) => {
                 let local_type = LocalType::Numeric(NumericType::Scalar(image.sampled_type));
@@ -2536,6 +2696,33 @@ impl Writer {
         for (_, var) in module.global_variables.iter() {
             if var.space.forbids_explicit_layout() {
                 self.get_workgroup_type_id(var.ty, module, explicit_layout)?;
+            }
+        }
+        for function in module
+            .functions
+            .iter()
+            .map(|(_, function)| function)
+            .chain(module.entry_points.iter().map(|entry| &entry.function))
+        {
+            for (_, var) in function.local_variables.iter() {
+                self.get_workgroup_type_id(var.ty, module, explicit_layout)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn prepare_spill_type(
+        &mut self,
+        ty: &TypeResolution,
+        module: &crate::Module,
+    ) -> Result<(), Error> {
+        if self.lang_version() >= (1, 4) {
+            if let TypeResolution::Handle(handle) = *ty {
+                self.get_workgroup_type_id(
+                    handle,
+                    module,
+                    &Self::explicit_layout_for_types(module),
+                )?;
             }
         }
         Ok(())
@@ -4253,7 +4440,9 @@ impl Writer {
                     continue;
                 }
             }
-            let id = self.write_function(ir_function, info, ir_module, None, &debug_info_inner)?;
+            self.write_wrapped_functions(ir_function, info, ir_module, mod_info)?;
+            let id =
+                self.write_function(ir_function, info, ir_module, None, &debug_info_inner, false)?;
             self.lookup_function.insert(handle, id);
         }
 
@@ -4264,7 +4453,7 @@ impl Writer {
                 continue;
             }
             let info = mod_info.get_entry_point(index);
-            let id = self.write_entry_point(ir_ep, info, ir_module, &debug_info_inner)?;
+            let id = self.write_entry_point(ir_ep, info, ir_module, &debug_info_inner, mod_info)?;
             if self.flags.contains(WriterFlags::PRESERVE_F16_DENORMS) {
                 entry_point_ids.push(id);
             }
@@ -4299,7 +4488,22 @@ impl Writer {
                 .to_words(&mut self.logical_layout.capabilities);
         }
 
-        let addressing_model = spirv::AddressingModel::Logical;
+        if self
+            .extensions_used
+            .contains("SPV_NV_cooperative_matrix_decode_vector")
+        {
+            let mut capability = Instruction::new(spirv::Op::Capability);
+            capability.add_operand(5447);
+            capability.to_words(&mut self.logical_layout.capabilities);
+        }
+        let addressing_model = if self
+            .capabilities_used
+            .contains(&spirv::Capability::PhysicalStorageBufferAddresses)
+        {
+            spirv::AddressingModel::PhysicalStorageBuffer64
+        } else {
+            spirv::AddressingModel::Logical
+        };
         let memory_model = self.memory_model;
         //self.check(addressing_model.required_capabilities())?;
         //self.check(memory_model.required_capabilities())?;

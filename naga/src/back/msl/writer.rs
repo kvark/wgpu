@@ -3089,6 +3089,12 @@ impl<W: Write> Writer<W> {
                 }
                 write!(self.out, ")")?;
             }
+            crate::Expression::CooperativeConvert { .. }
+            | crate::Expression::CooperativeReduce { .. }
+            | crate::Expression::CooperativeMap { .. }
+            | crate::Expression::CooperativeTensorLoad { .. } => {
+                return Err(Error::UnsupportedCooperativeMatrix);
+            }
             crate::Expression::CooperativeLoad { ref data, .. } => {
                 if context.lang_version < (2, 3) {
                     return Err(Error::UnsupportedCooperativeMatrix);
@@ -4493,6 +4499,9 @@ impl<W: Write> Writer<W> {
                         }
                     }
                     writeln!(self.out, ");")?;
+                }
+                crate::Statement::CooperativeTensorStore { .. } => {
+                    return Err(Error::UnsupportedCooperativeMatrix);
                 }
                 crate::Statement::CooperativeStore { target, ref data } => {
                     write!(self.out, "{level}simdgroup_store(")?;

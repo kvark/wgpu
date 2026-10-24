@@ -1,0 +1,164 @@
+; SPIR-V
+; Version: 1.6
+; Generator: rspirv
+; Bound: 120
+OpCapability Shader
+OpCapability VulkanMemoryModel
+OpCapability CooperativeMatrixKHR
+OpCapability Float16
+OpCapability StorageBuffer16BitAccess
+OpCapability UniformAndStorageBuffer16BitAccess
+OpCapability StorageInputOutput16
+OpCapability TensorAddressingNV
+OpCapability CooperativeMatrixTensorAddressingNV
+OpCapability CooperativeMatrixConversionsNV
+OpExtension "SPV_NV_cooperative_matrix2"
+OpExtension "SPV_KHR_vulkan_memory_model"
+OpExtension "SPV_KHR_cooperative_matrix"
+OpExtension "SPV_NV_tensor_addressing"
+%1 = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical Vulkan
+OpEntryPoint GLCompute %38 "main" %35 %22 %25 %28 %31
+OpExecutionMode %38 LocalSize 128 1 1
+OpDecorate %4 ArrayStride 4
+OpDecorate %22 NonWritable
+OpDecorate %22 DescriptorSet 0
+OpDecorate %22 Binding 0
+OpDecorate %23 Block
+OpMemberDecorate %23 0 Offset 0
+OpDecorate %25 NonWritable
+OpDecorate %25 DescriptorSet 0
+OpDecorate %25 Binding 1
+OpDecorate %26 Block
+OpMemberDecorate %26 0 Offset 0
+OpDecorate %28 DescriptorSet 0
+OpDecorate %28 Binding 2
+OpDecorate %29 Block
+OpMemberDecorate %29 0 Offset 0
+OpDecorate %31 DescriptorSet 0
+OpDecorate %31 Binding 3
+OpDecorate %32 Block
+OpMemberDecorate %32 0 Offset 0
+OpDecorate %35 BuiltIn WorkgroupId
+%2 = OpTypeVoid
+%3 = OpTypeFloat 32
+%4 = OpTypeRuntimeArray %3
+%6 = OpTypeInt 32 0
+%5 = OpTypeVector %6 4
+%7 = OpTypeVector %6 3
+%9 = OpConstant  %6  2
+%10 = OpConstant  %6  32
+%11 = OpConstant  %6  64
+%8 = OpTypeCooperativeMatrixKHR %3 %9 %11 %10 %9
+%12 = OpTypeVector %6 2
+%14 = OpTypeInt 32 1
+%13 = OpTypeVector %14 2
+%15 = OpTypeCooperativeMatrixKHR %3 %9 %10 %11 %9
+%17 = OpTypeFloat 16
+%18 = OpConstant  %6  0
+%16 = OpTypeCooperativeMatrixKHR %17 %9 %11 %10 %18
+%20 = OpConstant  %6  1
+%19 = OpTypeCooperativeMatrixKHR %17 %9 %10 %11 %20
+%21 = OpTypeCooperativeMatrixKHR %3 %9 %11 %11 %9
+%23 = OpTypeStruct %4
+%24 = OpTypePointer StorageBuffer %23
+%22 = OpVariable  %24  StorageBuffer
+%26 = OpTypeStruct %4
+%27 = OpTypePointer StorageBuffer %26
+%25 = OpVariable  %27  StorageBuffer
+%29 = OpTypeStruct %4
+%30 = OpTypePointer StorageBuffer %29
+%28 = OpVariable  %30  StorageBuffer
+%32 = OpTypeStruct %5
+%33 = OpTypePointer Uniform %32
+%31 = OpVariable  %33  Uniform
+%36 = OpTypePointer Input %7
+%35 = OpVariable  %36  Input
+%39 = OpTypeFunction %2
+%40 = OpTypePointer StorageBuffer %4
+%44 = OpTypePointer Uniform %5
+%46 = OpConstant  %14  -1
+%47 = OpConstantNull  %21
+%49 = OpTypePointer Uniform %6
+%62 = OpTypePointer StorageBuffer %3
+%70 = OpTypeTensorLayoutNV %9 %20
+%76 = OpConstantNull  %8
+%96 = OpTypeBool
+%95 = OpConstantFalse  %96
+%94 = OpTypeTensorViewNV %9 %95 %20 %18
+%99 = OpConstantNull  %15
+%38 = OpFunction  %2  None %39
+%34 = OpLabel
+%37 = OpLoad  %7  %35
+%41 = OpAccessChain  %40  %22 %18
+%42 = OpAccessChain  %40  %25 %18
+%43 = OpAccessChain  %40  %28 %18
+%45 = OpAccessChain  %44  %31 %18
+OpBranch %48
+%48 = OpLabel
+%50 = OpAccessChain  %49  %45 %18
+%51 = OpLoad  %6  %50
+%52 = OpAccessChain  %49  %45 %20
+%53 = OpLoad  %6  %52
+%54 = OpAccessChain  %49  %45 %9
+%55 = OpLoad  %6  %54
+%56 = OpCompositeConstruct  %12  %51 %55
+%57 = OpCompositeConstruct  %12  %55 %20
+%58 = OpCompositeExtract  %6  %37 1
+%59 = OpIMul  %6  %58 %11
+%60 = OpBitcast  %14  %59
+%61 = OpCompositeConstruct  %13  %60 %46
+%63 = OpAccessChain  %62  %41 %18
+%64 = OpCompositeExtract  %6  %56 0
+%65 = OpCompositeExtract  %6  %56 1
+%66 = OpCompositeExtract  %6  %57 0
+%67 = OpCompositeExtract  %6  %57 1
+%68 = OpCompositeExtract  %14  %61 0
+%69 = OpCompositeExtract  %14  %61 1
+%71 = OpCreateTensorLayoutNV  %70
+%72 = OpTensorLayoutSetDimensionNV  %70  %71 %64 %65
+%73 = OpTensorLayoutSetStrideNV  %70  %72 %66 %67
+%74 = OpTensorLayoutSliceNV  %70  %73 %68 %11 %69 %10
+%75 = OpCooperativeMatrixLoadTensorNV  %8  %63 %76 %74 None None
+%77 = OpCompositeConstruct  %12  %53 %55
+%78 = OpCompositeConstruct  %12  %55 %20
+%79 = OpCompositeExtract  %6  %37 0
+%80 = OpIMul  %6  %79 %11
+%81 = OpBitcast  %14  %80
+%82 = OpCompositeConstruct  %13  %81 %46
+%83 = OpAccessChain  %62  %42 %18
+%84 = OpCompositeExtract  %6  %77 0
+%85 = OpCompositeExtract  %6  %77 1
+%86 = OpCompositeExtract  %6  %78 0
+%87 = OpCompositeExtract  %6  %78 1
+%88 = OpCompositeExtract  %14  %82 0
+%89 = OpCompositeExtract  %14  %82 1
+%90 = OpCreateTensorLayoutNV  %70
+%91 = OpTensorLayoutSetDimensionNV  %70  %90 %84 %85
+%92 = OpTensorLayoutSetStrideNV  %70  %91 %86 %87
+%93 = OpTensorLayoutSliceNV  %70  %92 %88 %11 %89 %10
+%97 = OpCreateTensorViewNV  %94
+%98 = OpCooperativeMatrixLoadTensorNV  %15  %83 %99 %93 None TensorView %97
+%100 = OpFConvert  %16  %75
+%101 = OpFConvert  %19  %98
+%102 = OpCooperativeMatrixMulAddKHR  %21  %100 %101 %47
+%103 = OpCompositeConstruct  %12  %51 %53
+%104 = OpCompositeConstruct  %12  %53 %20
+%105 = OpVectorShuffle  %12  %37 %37 1 0
+%107 = OpCompositeConstruct  %12  %11 %11
+%106 = OpIMul  %12  %105 %107
+%108 = OpBitcast  %13  %106
+%109 = OpAccessChain  %62  %43 %18
+%110 = OpCompositeExtract  %6  %103 0
+%111 = OpCompositeExtract  %6  %103 1
+%112 = OpCompositeExtract  %6  %104 0
+%113 = OpCompositeExtract  %6  %104 1
+%114 = OpCompositeExtract  %14  %108 0
+%115 = OpCompositeExtract  %14  %108 1
+%116 = OpCreateTensorLayoutNV  %70
+%117 = OpTensorLayoutSetDimensionNV  %70  %116 %110 %111
+%118 = OpTensorLayoutSetStrideNV  %70  %117 %112 %113
+%119 = OpTensorLayoutSliceNV  %70  %118 %114 %11 %115 %11
+OpCooperativeMatrixStoreTensorNV %109 %102 %119 NonPrivatePointer None
+OpReturn
+OpFunctionEnd

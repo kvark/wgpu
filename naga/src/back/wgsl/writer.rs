@@ -343,6 +343,7 @@ impl<W: Write> Writer<W> {
                 | St::SubgroupGather { .. }
                 | St::SubgroupCollectiveOperation { .. }
                 | St::CooperativeStore { .. }
+                | St::CooperativeTensorStore { .. }
                 | St::DebugPrintf { .. } => false,
             })
         }
@@ -416,6 +417,7 @@ impl<W: Write> Writer<W> {
                     }
                 }
                 TypeInner::CooperativeMatrix { scalar, .. } => {
+                    needed.f16 |= scalar == crate::Scalar::F16;
                     needed.bfloat16 |= scalar == crate::Scalar::BF16;
                     needed.cooperative_matrix = true;
                 }
@@ -1291,6 +1293,16 @@ impl<W: Write> Writer<W> {
                 }
                 writeln!(self.out, ");")?;
             }
+            Statement::CooperativeTensorStore { target, ref data } => {
+                let suffix = if data.row_major { "T" } else { "" };
+                write!(self.out, "{level}coopStoreTensor{suffix}(")?;
+                self.write_expr(module, target, func_ctx)?;
+                for operand in data.operands() {
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, operand, func_ctx)?;
+                }
+                writeln!(self.out, ");")?;
+            }
             Statement::CooperativeStore { target, ref data } => {
                 let suffix = if data.row_major { "T" } else { "" };
                 write!(self.out, "{level}coopStore{suffix}(")?;
@@ -2085,6 +2097,85 @@ impl<W: Write> Writer<W> {
                 self.write_expr(module, data.pointer, func_ctx)?;
                 write!(self.out, ", ")?;
                 self.write_expr(module, data.stride, func_ctx)?;
+                write!(self.out, ")")?;
+            }
+            Expression::CooperativeTensorLoad {
+                ty,
+                ref data,
+                ref decode,
+            } => {
+                let suffix = if data.row_major { "T" } else { "" };
+                let block = if decode.is_some() { "Block" } else { "" };
+                write!(self.out, "coopLoadTensor{block}{suffix}<")?;
+                self.write_type(module, ty)?;
+                if let Some(ref decode) = *decode {
+                    write!(
+                        self.out,
+                        ", {}u, {}u",
+                        decode.block_size[0], decode.block_size[1]
+                    )?;
+                }
+                write!(self.out, ">(")?;
+                for (index, operand) in data.operands().into_iter().enumerate() {
+                    if index != 0 {
+                        write!(self.out, ", ")?;
+                    }
+                    self.write_expr(module, operand, func_ctx)?;
+                }
+                if let Some(ref decode) = *decode {
+                    for function in core::iter::once(decode.function).chain(decode.vector_function)
+                    {
+                        write!(self.out, ", {}", self.names[&NameKey::Function(function)])?;
+                    }
+                }
+                write!(self.out, ")")?;
+            }
+            Expression::CooperativeConvert {
+                ty,
+                source,
+                transpose,
+            } => {
+                let name = if transpose {
+                    "coopTranspose"
+                } else {
+                    "coopConvert"
+                };
+                write!(self.out, "{name}<")?;
+                self.write_type(module, ty)?;
+                write!(self.out, ">(")?;
+                self.write_expr(module, source, func_ctx)?;
+                write!(self.out, ")")?;
+            }
+            Expression::CooperativeReduce {
+                ty,
+                matrix,
+                mode,
+                function,
+            } => {
+                let suffix = match mode {
+                    crate::CooperativeReduceMode::Rows => "Rows",
+                    crate::CooperativeReduceMode::Columns => "Columns",
+                    crate::CooperativeReduceMode::All => "All",
+                    crate::CooperativeReduceMode::Quad => "Quad",
+                };
+                write!(self.out, "coopReduce{suffix}<")?;
+                self.write_type(module, ty)?;
+                write!(self.out, ">(")?;
+                self.write_expr(module, matrix, func_ctx)?;
+                write!(self.out, ", {})", self.names[&NameKey::Function(function)])?;
+            }
+            Expression::CooperativeMap {
+                matrix,
+                function,
+                ref arguments,
+            } => {
+                write!(self.out, "coopMap(")?;
+                self.write_expr(module, matrix, func_ctx)?;
+                write!(self.out, ", {}", self.names[&NameKey::Function(function)])?;
+                for &argument in arguments {
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, argument, func_ctx)?;
+                }
                 write!(self.out, ")")?;
             }
             Expression::CooperativeMultiplyAdd { a, b, c } => {

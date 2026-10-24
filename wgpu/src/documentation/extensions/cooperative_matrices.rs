@@ -336,6 +336,110 @@ If `saturating_accumulation` is true for the chosen configuration, then overflow
 is clamped (e.g. saturating arithmetic). If false, overflow behavior for the accumulator follows the
 underlying scalar type semantics (e.g. IEEE-754 for floats).
 
+### Naga embedding extensions: tensor addressing and conversions
+
+These operations are available to direct Naga embeddings, not through the `wgpu`
+feature above. They require SPIR-V 1.6 and separately enabled device features.
+There is no Metal, HLSL, or GLSL lowering.
+
+- `coopConvert<Matrix>(value)` converts `f16`/`f32` components while preserving
+  dimensions and scope. The role may stay unchanged or change from `C` to `A`/`B`.
+- `coopTranspose<Matrix>(value)` transposes `C` to `B`, preserving component type
+  and scope; the destination dimensions must be swapped.
+- `coopLoadTensorT<Matrix>(&buffer, dimensions, strides, offset)` loads a row-major
+  tile. The buffer is a storage array of the matrix's scalar type; dimensions and
+  strides are `vec2u`, and offset is `vec2i`.
+- `coopStoreTensorT(value, &buffer, dimensions, strides, offset)` stores a tile.
+  The variants without `T` transpose the tensor view, like the ordinary load/store
+  variants. Dimensions, strides, and offsets always describe outer/inner memory
+  order; strides are in scalar elements.
+
+Enable `COOPERATIVE_MATRIX_CONVERSIONS` and/or
+`COOPERATIVE_MATRIX_TENSOR_ADDRESSING` on the Naga validator, and the corresponding
+`cooperativeMatrixConversions` / `cooperativeMatrixTensorAddressing` device
+features from `VK_NV_cooperative_matrix2`. Tensor addressing also uses
+`SPV_NV_tensor_addressing`. Workgroup scope retains its separate capability.
+
+Tensor loads return zero outside the declared dimensions; out-of-tensor stores
+are discarded. These are **tensor bounds, not allocation bounds**. The embedding
+must guarantee a 16-byte aligned buffer base, sufficient allocation, non-overflowing
+address calculations, and valid tensor strides (positive inner stride and an
+outer stride large enough to cover a row). Naga does not establish these dynamic
+properties. Do not expose these capabilities to untrusted shaders without a
+separate safety boundary. Loads/stores require uniform layout operands and control
+flow within the matrix scope. Array pointers whose own access needs conditional
+buffer bounds checks are not currently supported by the SPIR-V backend.
+
+#### Block decoding
+
+`coopLoadTensorBlockT<Matrix, block_rows, block_columns>(&buffer, dimensions,
+strides, offset, decode[, decode_vector])` loads encoded blocks. The variant
+without `T` transposes the view. Block dimensions are positive constant `u32`
+values; strides count blocks, while dimensions and offsets count decoded elements.
+The storage array element may contain numeric values, fixed arrays, and structs.
+It must be sized and have alignment at most 16 bytes.
+The initial decoder ABI rejects implicit block-stride padding, trailing struct
+padding, array-element padding, and matrix-column padding: tensor decode addressing
+does not honor the storage array's `ArrayStride`. Use explicit numeric padding
+members when necessary.
+
+The scalar callback has signature `(block: Block, block_coordinate: vec2u,
+element_coordinate: vec2u) -> Component`. Coordinates are in tensor memory order;
+the element coordinate is relative to the block. Naga supplies the physical-pointer
+wrapper internally. Callbacks and their callees must be pure: local arithmetic and
+local memory are allowed, but global memory, synchronization, derivatives,
+cooperative operations, and external side effects are not.
+
+Enable `COOPERATIVE_MATRIX_BLOCK_LOADS`, device `cooperativeMatrixBlockLoads`, and
+buffer device addresses. The embedding must satisfy all tensor-addressing safety
+conditions above for the complete encoded blocks. Callback blocks are passed by
+value; large blocks and dynamic array indexing can have a performance cost.
+
+An optional vector callback takes the same arguments and returns `vec2<Component>`
+or `vec4<Component>`. Its width must divide the inner block dimension, and its
+results must agree with consecutive scalar callback evaluations. The embedding
+must ensure that semantic equivalence. The implementation may choose either
+callback. Enable `COOPERATIVE_MATRIX_DECODE_VECTOR`, the device extension
+`VK_NV_cooperative_matrix_decode_vector`, and
+`spv::WriterFlags::COOPERATIVE_MATRIX_DECODE_VECTOR`.
+The writer flag explicitly authorizes the extension's capability, which the
+current Rust SPIR-V bindings cannot represent in `Options::capabilities`.
+Vector decoding is encoding-tested but not GPU-tested on the available hardware;
+8-component vector results are not currently supported.
+
+#### Reductions and per-element callbacks
+
+- `coopReduceRows<Matrix>(value, combine)` combines each row and broadcasts its
+  result across that row. The destination must preserve the source row count.
+- `coopReduceColumns<Matrix>(value, combine)` similarly preserves the column count.
+- `coopReduceAll<Matrix>(value, combine)` reduces the entire matrix and broadcasts
+  to every destination element.
+- `coopReduceQuad<Matrix>(value, combine)` combines each aligned 2-by-2 region.
+  Source dimensions must be even; both destination dimensions are halved.
+
+Source and destination must be `C` matrices with the same component type and
+scope. The callback has signature `(Component, Component) -> Component`. The
+embedding must choose a mathematically associative and commutative operation;
+Naga checks types and purity, not these mathematical properties. Floating-point
+rounding and reduction order can change results. Device-supported matrix shapes
+still apply, including to the destination.
+
+`coopMap(value, function[, extra...])` preserves the matrix type and calls
+`function(row: u32, column: u32, value: Component[, extra...]) -> Component`.
+Coordinates are matrix-local. Extra matrix operands must have exactly the input
+matrix's type and pass their corresponding scalar component. Extra ordinary
+operands must be scalar/vector/matrix values matching the callback
+parameter types, uniform in the cooperative scope. Callback purity rules are the
+same as for block decoding. Execution order and invocation count are unspecified.
+Control flow must be uniform in the matrix scope.
+
+Enable `COOPERATIVE_MATRIX_REDUCTIONS` and/or
+`COOPERATIVE_MATRIX_PER_ELEMENT_OPERATIONS`, plus device
+`cooperativeMatrixReductions` / `cooperativeMatrixPerElementOperations` from
+`VK_NV_cooperative_matrix2`. This lowering requires SPIR-V 1.6; it does not yet
+target `SPV_EXT_cooperative_matrix_maintenance1` or other shader backends.
+These are compiler primitives for fused kernels, not a performance guarantee.
+
 ### Workgroup cooperation and execution model
 
 Cooperative matrix operations are **collective**:

@@ -46,6 +46,9 @@ Bottom level categories:
 
 #### Naga
 
+- Add opt-in cooperative matrix reductions and pure per-element callbacks for SPIR-V embeddings.
+- Add opt-in cooperative block decoding with scalar/vector callbacks for direct SPIR-V embeddings; keep function temporaries free of buffer layout decorations on SPIR-V 1.4+.
+- Add opt-in SPIR-V cooperative matrix conversions and zero-padded 2D tensor loads/stores for Naga embeddings.
 - Add an opt-in SPIR-V writer flag to preserve f16 subnormals on supported devices.
 - Support BF16 storage, conversion and cooperative matrix operands in MSL 3.1 and later.
 
@@ -321,6 +324,8 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 - Fix `Device::on_uncaptured_error` never firing in browsers that do not implement `GPUDevice.onuncapturederror`, such as Safari, by listening for the `uncapturederror` event instead of assigning to that attribute. By @zemse in [#10270](https://github.com/gfx-rs/wgpu/pull/10270).
 
 ### Performance
+
+- Load cooperative decoder fields directly from the block pointer in SPIR-V, avoiding whole-block copies and dynamic-array spills while retaining configured bounds checks.
 
 - Added explicit `Send` and `Sync` implementations to key `wgpu` types so that the compiler can do less work checking those bounds. If you previously added a `#![recursion_limit = ...]` attribute to your crate due to overflow errors involving `wgpu` types, you may now be able to remove it. By @kpreid in [#10177](https://github.com/gfx-rs/wgpu/pull/10177).
 

@@ -301,6 +301,9 @@ struct Function {
     /// [`spilled_composites`]: Function::spilled_composites
     access_uses: crate::FastHashMap<Handle<crate::Expression>, usize>,
 
+    /// By-value block accesses lowered through a decoder's physical pointer.
+    decode_accesses: crate::arena::HandleSet<crate::Expression>,
+
     blocks: Vec<TerminatedBlock>,
     entry_point_context: Option<EntryPointContext>,
 }
@@ -530,6 +533,9 @@ enum LocalType {
     /// A numeric type.
     Numeric(NumericType),
     Cooperative(CooperativeType),
+    TensorLayout2d,
+    TensorViewTranspose2d,
+    TensorCoordinates2d,
     Pointer {
         base: Word,
         class: spirv::StorageClass,
@@ -619,6 +625,7 @@ enum Dimension {
 /// for the expression. See [`Writer::wrapped_functions`].
 #[derive(Debug, Eq, PartialEq, Hash)]
 enum WrappedFunction {
+    CooperativeDecode(Handle<crate::Function>),
     BinaryOp {
         op: crate::BinaryOperator,
         left_type_id: Word,
@@ -1132,6 +1139,9 @@ bitflags::bitflags! {
         /// Below Vulkan 1.2, enable `VK_KHR_shader_float_controls` as well.
         /// Modules without f16 do not request float controls.
         const PRESERVE_F16_DENORMS = 0x80;
+        /// Allow `SPV_NV_cooperative_matrix_decode_vector` (capability 5447,
+        /// not yet present in the spirv crate). Requires the device extension.
+        const COOPERATIVE_MATRIX_DECODE_VECTOR = 0x100;
     }
 }
 
@@ -1333,6 +1343,12 @@ pub fn supported_capabilities() -> crate::valid::Capabilities {
         | Caps::STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING
         | Caps::STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING
         | Caps::COOPERATIVE_MATRIX
+        | Caps::COOPERATIVE_MATRIX_CONVERSIONS
+        | Caps::COOPERATIVE_MATRIX_TENSOR_ADDRESSING
+        | Caps::COOPERATIVE_MATRIX_BLOCK_LOADS
+        | Caps::COOPERATIVE_MATRIX_DECODE_VECTOR
+        | Caps::COOPERATIVE_MATRIX_REDUCTIONS
+        | Caps::COOPERATIVE_MATRIX_PER_ELEMENT_OPERATIONS
         | Caps::SHADER_BFLOAT16
         | Caps::COOPERATIVE_MATRIX_WORKGROUP
         | Caps::PER_VERTEX

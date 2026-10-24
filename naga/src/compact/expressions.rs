@@ -262,6 +262,30 @@ impl ExpressionTracer<'_> {
                 self.expressions_used.insert(b);
                 self.expressions_used.insert(c);
             }
+            Ex::CooperativeConvert { ty, source, .. } => {
+                self.types_used.insert(ty);
+                self.expressions_used.insert(source);
+            }
+            Ex::CooperativeReduce { ty, matrix, .. } => {
+                self.types_used.insert(ty);
+                self.expressions_used.insert(matrix);
+            }
+            Ex::CooperativeMap {
+                matrix,
+                ref arguments,
+                ..
+            } => {
+                self.expressions_used.insert(matrix);
+                for &argument in arguments {
+                    self.expressions_used.insert(argument);
+                }
+            }
+            Ex::CooperativeTensorLoad { ty, ref data, .. } => {
+                self.types_used.insert(ty);
+                for operand in data.operands() {
+                    self.expressions_used.insert(operand);
+                }
+            }
         }
     }
 }
@@ -432,6 +456,26 @@ impl ModuleMap {
                 adjust(&mut data.pointer);
                 adjust(&mut data.stride);
             }
+            Ex::CooperativeConvert {
+                ref mut ty,
+                ref mut source,
+                ..
+            } => {
+                self.types.adjust(ty);
+                adjust(source);
+            }
+            Ex::CooperativeTensorLoad {
+                ref mut ty,
+                ref mut data,
+                ref mut decode,
+            } => {
+                self.types.adjust(ty);
+                data.adjust(adjust);
+                if let Some(ref mut decode) = *decode {
+                    self.functions.adjust(&mut decode.function);
+                    self.functions.adjust_option(&mut decode.vector_function);
+                }
+            }
             Ex::CooperativeMultiplyAdd {
                 ref mut a,
                 ref mut b,
@@ -440,6 +484,27 @@ impl ModuleMap {
                 adjust(a);
                 adjust(b);
                 adjust(c);
+            }
+            Ex::CooperativeReduce {
+                ref mut ty,
+                ref mut matrix,
+                ref mut function,
+                ..
+            } => {
+                self.types.adjust(ty);
+                self.functions.adjust(function);
+                adjust(matrix);
+            }
+            Ex::CooperativeMap {
+                ref mut matrix,
+                ref mut function,
+                ref mut arguments,
+            } => {
+                self.functions.adjust(function);
+                adjust(matrix);
+                for argument in arguments {
+                    adjust(argument);
+                }
             }
         }
     }

@@ -214,9 +214,9 @@ pub enum FunctionError {
     WorkgroupUniformLoadInvalidPointer(Handle<crate::Expression>),
     #[error("Subgroup operation is invalid")]
     InvalidSubgroup(#[from] SubgroupError),
-    #[error("Workgroup cooperative operand {0:?} or its control flow is not uniform")]
+    #[error("Cooperative operand {0:?} or its control flow is not uniform in the matrix scope")]
     NonUniformCooperativeOperand(Handle<crate::Expression>),
-    #[error("Workgroup cooperative function {0:?} is called in non-uniform control flow")]
+    #[error("Cooperative function {0:?} is called in non-uniform control flow")]
     NonUniformCooperativeCall(Handle<crate::Function>),
     #[error("Invalid target type for a cooperative store")]
     InvalidCooperativeStoreTarget(Handle<crate::Expression>),
@@ -224,6 +224,8 @@ pub enum FunctionError {
     InvalidCooperativeDataPointer(Handle<crate::Expression>),
     #[error("Cooperative load/store stride must be a u32 scalar")]
     InvalidCooperativeStride(Handle<crate::Expression>),
+    #[error("Invalid cooperative tensor store")]
+    InvalidCooperativeTensor(#[source] ExpressionError),
     #[error("Emit statement should not cover \"result\" expressions like {0:?}")]
     EmitResult(Handle<crate::Expression>),
     #[error("Expression not visited by the appropriate statement")]
@@ -832,6 +834,10 @@ impl super::Validator {
                             | Ex::RayQueryGetIntersection { .. }
                             | Ex::RayQueryVertexPositions { .. }
                             | Ex::CooperativeLoad { .. }
+                            | Ex::CooperativeConvert { .. }
+                            | Ex::CooperativeReduce { .. }
+                            | Ex::CooperativeMap { .. }
+                            | Ex::CooperativeTensorLoad { .. }
                             | Ex::CooperativeMultiplyAdd { .. } => {
                                 self.emit_expression(handle, context)?
                             }
@@ -1677,6 +1683,29 @@ impl super::Validator {
                         .with_span_static(span, "support for this operation is not present"));
                     }
                     self.validate_subgroup_gather(mode, argument, result, context)?;
+                }
+                S::CooperativeTensorStore { target, ref data } => {
+                    stages &= super::ShaderStages::COMPUTE;
+                    let Ti::CooperativeMatrix { scalar, .. } =
+                        *context.resolve_type_inner(target, &self.valid_expression_set)?
+                    else {
+                        return Err(FunctionError::InvalidCooperativeStoreTarget(target)
+                            .with_span_handle(target, context.expressions));
+                    };
+                    for operand in data.operands() {
+                        context.resolve_type_inner(operand, &self.valid_expression_set)?;
+                    }
+                    self.validate_cooperative_tensor(
+                        data,
+                        Some(scalar),
+                        context.types,
+                        |handle| context.info[handle].ty.inner_with(context.types),
+                        crate::StorageAccess::STORE,
+                    )
+                    .map_err(|err| {
+                        FunctionError::InvalidCooperativeTensor(err)
+                            .with_span_static(span, "invalid tensor store")
+                    })?;
                 }
                 S::CooperativeStore { target, ref data } => {
                     stages &= super::ShaderStages::COMPUTE;

@@ -4,6 +4,7 @@ Shader validator.
 
 mod analyzer;
 mod compose;
+mod cooperative;
 mod expression;
 mod function;
 mod handles;
@@ -235,6 +236,19 @@ bitflags::bitflags! {
         const SHADER_BFLOAT16 = 1 << 47;
         /// Workgroup-scope cooperative matrices with flexible dimensions.
         const COOPERATIVE_MATRIX_WORKGROUP = 1 << 49;
+        /// Cooperative matrix component and accumulator-to-operand conversions.
+        const COOPERATIVE_MATRIX_CONVERSIONS = 1 << 50;
+        /// Tensor-addressed cooperative loads/stores. The embedding must enforce
+        /// the allocation/alignment contract of `CooperativeTensorData`.
+        const COOPERATIVE_MATRIX_TENSOR_ADDRESSING = 1 << 51;
+        /// Tensor block decoding through pure callbacks and physical storage pointers.
+        const COOPERATIVE_MATRIX_BLOCK_LOADS = 1 << 52;
+        /// Optional vector block-decoding callbacks.
+        const COOPERATIVE_MATRIX_DECODE_VECTOR = 1 << 53;
+        /// Cooperative accumulator reductions (SPV_NV_cooperative_matrix2).
+        const COOPERATIVE_MATRIX_REDUCTIONS = 1 << 54;
+        /// Pure per-element cooperative callbacks (SPV_NV_cooperative_matrix2).
+        const COOPERATIVE_MATRIX_PER_ELEMENT_OPERATIONS = 1 << 55;
     }
 }
 
