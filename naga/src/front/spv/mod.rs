@@ -1925,6 +1925,22 @@ impl<I: Iterator<Item = u32>> Frontend<I> {
         Ok(())
     }
 
+    fn parse_memory_access(&mut self, inst: Instruction, base_words: u16) -> Result<(), Error> {
+        if inst.wc == base_words {
+            return Ok(());
+        }
+        let access =
+            spirv::MemoryAccess::from_bits(self.next()?).ok_or(Error::InvalidParameter(inst.op))?;
+        if access.intersects(
+            spirv::MemoryAccess::NON_PRIVATE_POINTER
+                | spirv::MemoryAccess::MAKE_POINTER_AVAILABLE
+                | spirv::MemoryAccess::MAKE_POINTER_VISIBLE,
+        ) {
+            return Err(Error::UnsupportedMemoryAccess(access));
+        }
+        inst.expect(base_words + 1)
+    }
+
     fn parse_entry_point(&mut self, inst: Instruction) -> Result<(), Error> {
         self.switch(ModuleState::EntryPoint, inst.op)?;
         inst.expect_at_least(4)?;

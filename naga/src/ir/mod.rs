@@ -2166,8 +2166,9 @@ pub enum Statement {
     /// If empty, this becomes purely an execution barrier.
     ControlBarrier(Barrier),
 
-    /// Synchronize invocations within the work group.
-    /// The `Barrier` flags control which memory accesses should be synchronized.
+    /// Order this invocation's memory accesses without an execution rendezvous.
+    /// Storage fences cover the device (or queue family); workgroup fences
+    /// cover the workgroup. Requires [`crate::valid::Capabilities::MEMORY_FENCE`].
     MemoryBarrier(Barrier),
 
     /// Stores a value at an address.

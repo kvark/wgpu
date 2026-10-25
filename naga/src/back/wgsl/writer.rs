@@ -346,12 +346,21 @@ impl<W: Write> Writer<W> {
                 | St::DebugPrintf { .. } => false,
             })
         }
-        needed.memory_fence = module
+        for function in module
             .entry_points
             .iter()
             .map(|ep| &ep.function)
             .chain(module.functions.iter().map(|(_, f)| f))
-            .any(|f| contains_memory_barrier(&f.body));
+        {
+            needed.memory_fence |= contains_memory_barrier(&function.body);
+            needed.cooperative_matrix |= function.expressions.iter().any(|(_, expression)| {
+                matches!(
+                    expression,
+                    crate::Expression::CooperativeLoad { .. }
+                        | crate::Expression::CooperativeMultiplyAdd { .. }
+                )
+            });
+        }
 
         let check_binding = |binding: &crate::Binding, needed: &mut RequiredEnabled| match *binding
         {
@@ -416,6 +425,7 @@ impl<W: Write> Writer<W> {
                     }
                 }
                 TypeInner::CooperativeMatrix { scalar, .. } => {
+                    needed.f16 |= scalar == crate::Scalar::F16;
                     needed.bfloat16 |= scalar == crate::Scalar::BF16;
                     needed.cooperative_matrix = true;
                 }

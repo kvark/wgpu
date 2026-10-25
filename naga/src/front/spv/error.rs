@@ -38,6 +38,8 @@ pub enum Error {
     UnsupportedType(Handle<crate::Type>),
     #[error("unsupported execution model %{0}")]
     UnsupportedExecutionModel(spirv::Word),
+    #[error("SPIR-V memory access {0:?} cannot be preserved on import")]
+    UnsupportedMemoryAccess(spirv::MemoryAccess),
     #[error("unsupported execution mode %{0}")]
     UnsupportedExecutionMode(spirv::Word),
     #[error("unsupported storage class %{0}")]

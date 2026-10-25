@@ -47,7 +47,7 @@ struct main_Output {
 };
 fragment main_Output main_(
   main_Input varyings [[stage_in]]
-, device NagaArgumentBufferWrapper<device Foo*>* storage_array [[buffer(0)]]
+, constant NagaArgumentBufferWrapper<device Foo*>* storage_array [[buffer(0)]]
 , device PlainData const& plain_storage [[buffer(1)]]
 , constant UniformIndex& uni [[buffer(2)]]
 , constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]

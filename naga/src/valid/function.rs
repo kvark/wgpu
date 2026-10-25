@@ -1043,6 +1043,16 @@ impl super::Validator {
                 }
                 S::ControlBarrier(barrier) | S::MemoryBarrier(barrier) => {
                     stages &= super::ShaderStages::COMPUTE_LIKE;
+                    if matches!(*statement, S::MemoryBarrier(_))
+                        && !self
+                            .capabilities
+                            .contains(super::Capabilities::MEMORY_FENCE)
+                    {
+                        return Err(FunctionError::MissingCapability(
+                            super::Capabilities::MEMORY_FENCE,
+                        )
+                        .with_span_static(span, "missing capability for this operation"));
+                    }
                     if barrier.contains(crate::Barrier::SUB_GROUP) {
                         if !self.capabilities.contains(
                             super::Capabilities::SUBGROUP | super::Capabilities::SUBGROUP_BARRIER,

@@ -880,7 +880,7 @@ pub fn supported_capabilities() -> crate::valid::Capabilities {
         // No DRAW_INDEX
         | Caps::MEMORY_DECORATION_COHERENT
         | Caps::MEMORY_DECORATION_VOLATILE
-        // No MEMORY_FENCE: Metal has no fence-only barrier.
+        | Caps::MEMORY_FENCE
         | Caps::LINEAR_INTERPOLATION
         | Caps::DEBUG_PRINTF
 }

@@ -42,10 +42,21 @@ Bottom level categories:
 
 ## Unreleased
 
+### Bug Fixes
+
+#### Naga
+
+- Preserve cooperative-matrix and F16 enable directives in generated WGSL, including inferred matrix types.
+- Validate the memory-fence capability in IR and reject fences on unsupported Metal targets.
+- Keep storage-buffer argument tables read-only and preserve coherent qualifiers on their pointees.
+- Reject SPIR-V non-private/availability/visibility access operands that the
+  importer cannot preserve. SPIR-V output with these operands remains supported.
+
 ### Added/New Features
 
 #### Naga
 
+- Emit native memory fences for Apple-silicon MSL 3.2 and later, without a workgroup rendezvous.
 - Add an opt-in SPIR-V writer flag to preserve f16 subnormals on supported devices.
 - Support BF16 storage, conversion and cooperative matrix operands in MSL 3.1 and later.
 
