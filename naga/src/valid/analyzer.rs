@@ -251,7 +251,7 @@ pub struct FunctionInfo {
     #[cfg_attr(any(feature = "serialize", feature = "deserialize"), serde(skip))]
     uniformity_graph: Option<Box<operand_uniformity::Graph>>,
     #[cfg_attr(any(feature = "serialize", feature = "deserialize"), serde(skip))]
-    operand_uniformity: Option<Box<operand_uniformity::Summary>>,
+    operand_uniformity: Option<Box<[operand_uniformity::Summary; 2]>>,
 
     /// All pairs of (texture, sampler) globals that may be used together in
     /// sampling operations by this function and its callees. This includes
@@ -861,13 +861,25 @@ impl FunctionInfo {
                 non_uniform_result: self.add_ref(query),
                 requirements: UniformityRequirements::empty(),
             },
-            E::CooperativeLoad { ref data, .. } => Uniformity {
+            E::CooperativeLoad {
+                scope, ref data, ..
+            } => Uniformity {
                 non_uniform_result: self.add_ref(data.pointer).or(self.add_ref(data.stride)),
-                requirements: UniformityRequirements::COOP_OPS,
+                requirements: if scope == crate::CooperativeScope::Workgroup {
+                    UniformityRequirements::COOP_OPS
+                } else {
+                    UniformityRequirements::empty()
+                },
             },
             E::CooperativeMultiplyAdd { a, b, c } => Uniformity {
                 non_uniform_result: self.add_ref(a).or(self.add_ref(b).or(self.add_ref(c))),
-                requirements: UniformityRequirements::COOP_OPS,
+                requirements: match *self[a].ty.inner_with(resolve_context.types) {
+                    crate::TypeInner::CooperativeMatrix {
+                        scope: crate::CooperativeScope::Workgroup,
+                        ..
+                    } => UniformityRequirements::COOP_OPS,
+                    _ => UniformityRequirements::empty(),
+                },
             },
         };
 
@@ -1290,7 +1302,7 @@ impl ModuleInfo {
             available_stages: ShaderStages::all(),
             uniformity: Uniformity::new(),
             may_kill: false,
-            uniformity_graph: (self.cooperative_matrix_usage.workgroup
+            uniformity_graph: (self.cooperative_matrix_usage.any
                 && flags.contains(ValidationFlags::CONTROL_FLOW_UNIFORMITY))
             .then(|| {
                 Box::new(operand_uniformity::Graph::new(

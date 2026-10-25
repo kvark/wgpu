@@ -214,9 +214,9 @@ pub enum FunctionError {
     WorkgroupUniformLoadInvalidPointer(Handle<crate::Expression>),
     #[error("Subgroup operation is invalid")]
     InvalidSubgroup(#[from] SubgroupError),
-    #[error("Workgroup cooperative operand {0:?} or its control flow is not uniform")]
+    #[error("Cooperative operand {0:?} or its control flow is not uniform")]
     NonUniformCooperativeOperand(Handle<crate::Expression>),
-    #[error("Workgroup cooperative function {0:?} is called in non-uniform control flow")]
+    #[error("Cooperative function {0:?} is called in non-uniform control flow")]
     NonUniformCooperativeCall(Handle<crate::Function>),
     #[error("Invalid target type for a cooperative store")]
     InvalidCooperativeStoreTarget(Handle<crate::Expression>),

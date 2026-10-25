@@ -42,6 +42,7 @@ enum Source {
     Uniform,
     NonUniform,
     Argument(u32),
+    BuiltIn(crate::BuiltIn),
     Local(Handle<crate::LocalVariable>),
     Call,
 }
@@ -88,20 +89,21 @@ impl Graph {
         let dependencies = &mut self.expressions[handle.index()];
         dependencies.source = match arena[handle] {
             E::FunctionArgument(index) if !self.entry_point => Source::Argument(index),
-            E::FunctionArgument(index) => {
-                if uniform_builtin(&context.arguments[index as usize].binding) {
-                    Source::Uniform
-                } else {
-                    Source::NonUniform
-                }
-            }
+            E::FunctionArgument(index) => match context.arguments[index as usize].binding {
+                Some(crate::Binding::BuiltIn(builtin)) => Source::BuiltIn(builtin),
+                _ => Source::NonUniform,
+            },
             E::AccessIndex { base, index } if self.entry_point => {
                 if let E::FunctionArgument(argument) = arena[base] {
                     if let Ti::Struct { ref members, .. } =
                         context.types[context.arguments[argument as usize].ty].inner
                     {
-                        if uniform_builtin(&members[index as usize].binding) {
+                        if let Some(crate::Binding::BuiltIn(builtin)) =
+                            members[index as usize].binding
+                        {
                             dependencies.references.clear();
+                            dependencies.source = Source::BuiltIn(builtin);
+                            return;
                         }
                     }
                 }
@@ -159,6 +161,7 @@ fn root(arena: &crate::Arena<E>, mut pointer: Handle<E>) -> Handle<E> {
 }
 
 struct Analysis<'a> {
+    scope: crate::CooperativeScope,
     module: &'a crate::Module,
     function: &'a crate::Function,
     info: &'a FunctionInfo,
@@ -169,15 +172,16 @@ struct Analysis<'a> {
     summary: Summary,
 }
 
-const fn uniform_builtin(binding: &Option<crate::Binding>) -> bool {
-    matches!(
-        *binding,
-        Some(crate::Binding::BuiltIn(
-            crate::BuiltIn::WorkGroupId
-                | crate::BuiltIn::WorkGroupSize
-                | crate::BuiltIn::NumWorkGroups
-        ))
-    )
+const fn uniform_builtin(builtin: crate::BuiltIn, scope: crate::CooperativeScope) -> bool {
+    match builtin {
+        crate::BuiltIn::WorkGroupId
+        | crate::BuiltIn::WorkGroupSize
+        | crate::BuiltIn::NumWorkGroups => true,
+        crate::BuiltIn::SubgroupId
+        | crate::BuiltIn::SubgroupSize
+        | crate::BuiltIn::NumSubgroups => matches!(scope, crate::CooperativeScope::Subgroup),
+        _ => false,
+    }
 }
 
 impl Analysis<'_> {
@@ -189,6 +193,10 @@ impl Analysis<'_> {
         let expression = &self.graph.expressions[handle.index()];
         let mut result = match expression.source {
             Source::Uniform => Dependencies::default(),
+            Source::BuiltIn(builtin) => Dependencies {
+                divergent: !uniform_builtin(builtin, self.scope),
+                ..Dependencies::default()
+            },
             Source::NonUniform => Dependencies {
                 divergent: true,
                 ..Dependencies::default()
@@ -222,14 +230,25 @@ impl Analysis<'_> {
         Ok(())
     }
 
-    fn workgroup_matrix(&self, expr: Handle<E>) -> bool {
+    fn matrix_scope(&self, expr: Handle<E>) -> bool {
         matches!(
             *self.info[expr].ty.inner_with(&self.module.types),
-            Ti::CooperativeMatrix {
-                scope: crate::CooperativeScope::Workgroup,
-                ..
-            }
+            Ti::CooperativeMatrix { scope, .. } if scope == self.scope
         )
+    }
+
+    fn require_control(
+        &mut self,
+        expr: Handle<E>,
+        control: &Dependencies,
+    ) -> Result<(), WithSpan<FunctionError>> {
+        self.summary.cooperative = true;
+        if control.divergent {
+            return Err(FunctionError::NonUniformCooperativeOperand(expr)
+                .with_span_handle(expr, &self.function.expressions));
+        }
+        self.summary.required.merge(control);
+        Ok(())
     }
 
     fn exits(&self, block: &crate::Block, control: &Dependencies, nested: bool) -> Dependencies {
@@ -286,22 +305,16 @@ impl Analysis<'_> {
                     for handle in range.clone() {
                         match self.function.expressions[handle] {
                             E::CooperativeLoad {
-                                scope: crate::CooperativeScope::Workgroup,
-                                ref data,
-                                ..
-                            } => {
-                                self.require(data.pointer, &control)?;
-                                self.require(data.stride, &control)?;
-                            }
-                            E::CooperativeMultiplyAdd { a, .. } if self.workgroup_matrix(a) => {
-                                self.summary.cooperative = true;
-                                if control.divergent {
-                                    return Err(FunctionError::NonUniformCooperativeOperand(
-                                        handle,
-                                    )
-                                    .with_span_handle(handle, &self.function.expressions));
+                                scope, ref data, ..
+                            } if scope == self.scope => {
+                                self.require_control(handle, &control)?;
+                                if scope == crate::CooperativeScope::Workgroup {
+                                    self.require(data.pointer, &control)?;
+                                    self.require(data.stride, &control)?;
                                 }
-                                self.summary.required.merge(&control);
+                            }
+                            E::CooperativeMultiplyAdd { a, .. } if self.matrix_scope(a) => {
+                                self.require_control(handle, &control)?;
                             }
                             _ => {}
                         }
@@ -362,6 +375,8 @@ impl Analysis<'_> {
                         .operand_uniformity
                         .as_deref()
                         .expect("callee operand uniformity has been analyzed");
+                    let summary =
+                        &summary[usize::from(self.scope == crate::CooperativeScope::Subgroup)];
                     if let Some(result) = result {
                         let mut value = summary.result.substitute(arguments, &self.expressions);
                         value.merge(&control);
@@ -393,11 +408,12 @@ impl Analysis<'_> {
                     self.summary.result.merge(&self.expressions[value.index()]);
                     self.summary.result.merge(&control);
                 }
-                S::CooperativeStore { target, ref data }
-                    if check && self.workgroup_matrix(target) =>
-                {
-                    for operand in [data.pointer, data.stride] {
-                        self.require(operand, &control)?;
+                S::CooperativeStore { target, ref data } if check && self.matrix_scope(target) => {
+                    self.require_control(target, &control)?;
+                    if self.scope == crate::CooperativeScope::Workgroup {
+                        for operand in [data.pointer, data.stride] {
+                            self.require(operand, &control)?;
+                        }
                     }
                 }
                 _ => {}
@@ -440,18 +456,25 @@ impl FunctionInfo {
         let Some(graph) = self.uniformity_graph.take() else {
             return Ok(());
         };
-        let summary = Analysis {
-            module,
-            function,
-            info: self,
-            callees,
-            graph: *graph,
-            expressions: vec![Dependencies::default(); function.expressions.len()],
-            locals: vec![Dependencies::default(); function.local_variables.len()],
-            summary: Summary::default(),
+        let mut summaries = [Summary::default(), Summary::default()];
+        for (summary, scope) in summaries.iter_mut().zip([
+            crate::CooperativeScope::Workgroup,
+            crate::CooperativeScope::Subgroup,
+        ]) {
+            *summary = Analysis {
+                scope,
+                module,
+                function,
+                info: self,
+                callees,
+                graph: (*graph).clone(),
+                expressions: vec![Dependencies::default(); function.expressions.len()],
+                locals: vec![Dependencies::default(); function.local_variables.len()],
+                summary: Summary::default(),
+            }
+            .run()?;
         }
-        .run()?;
-        self.operand_uniformity = Some(Box::new(summary));
+        self.operand_uniformity = Some(Box::new(summaries));
         Ok(())
     }
 }

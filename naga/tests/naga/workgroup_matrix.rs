@@ -325,3 +325,55 @@ fn generic_dimensions_and_scope_diagnostic() {
         }
     }
 }
+
+#[test]
+fn subgroup_control_flow_tracks_scope_through_calls() {
+    let source = SOURCE
+        .replace("32x64", "16x16")
+        .replace("64x32", "16x16")
+        .replace("64x64", "16x16")
+        .replace(",workgroup", ",subgroup")
+        .replace("@compute @workgroup_size(128)\nfn main(@builtin(local_invocation_index) lid: u32) {",
+            "fn multiply(enabled: bool) { if enabled {")
+        + "}\n@compute @workgroup_size(128) fn main(@builtin(subgroup_id) group: u32) { multiply(group < 2u); }";
+    let module = naga::front::wgsl::parse_str(&source).unwrap();
+    Validator::new(ValidationFlags::all(), Capabilities::all())
+        .validate(&module)
+        .unwrap();
+    let text = naga::back::wgsl::write_string(
+        &module,
+        &Validator::new(ValidationFlags::all(), Capabilities::all())
+            .validate(&module)
+            .unwrap(),
+        naga::back::wgsl::WriterFlags::empty(),
+    )
+    .unwrap();
+    let roundtrip = naga::front::wgsl::parse_str(&text).unwrap();
+    Validator::new(ValidationFlags::all(), Capabilities::all())
+        .validate(&roundtrip)
+        .unwrap();
+    assert!(
+        naga::front::wgsl::parse_str(&source.replace(",subgroup", ",workgroup"))
+            .map(
+                |module| Validator::new(ValidationFlags::all(), Capabilities::all())
+                    .validate(&module)
+                    .is_err()
+            )
+            .unwrap()
+    );
+    for divergent in [
+        source.replace("@builtin(subgroup_id)", "@builtin(local_invocation_index)"),
+        source.replace("@builtin(subgroup_id)", "@builtin(subgroup_invocation_id)"),
+    ] {
+        assert!(matches!(
+            error(&divergent),
+            ValidationError::EntryPoint {
+                source: EntryPointError::Function(
+                    FunctionError::NonUniformCooperativeOperand(_)
+                        | FunctionError::NonUniformCooperativeCall(_)
+                ),
+                ..
+            }
+        ));
+    }
+}
