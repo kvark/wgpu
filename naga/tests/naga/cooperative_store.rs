@@ -30,13 +30,13 @@ fn main() { let value = matrix(); }
         naga::compact::compact(&mut module, naga::compact::KeepUnused::No);
         let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
         let info = validator.validate(&module).unwrap();
-        let output = naga::back::wgsl::write_string(
-            &module,
-            &info,
-            naga::back::wgsl::WriterFlags::empty(),
-        )
-        .unwrap();
-        assert!(output.contains("enable wgpu_cooperative_matrix;"), "{output}");
+        let output =
+            naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
+                .unwrap();
+        assert!(
+            output.contains("enable wgpu_cooperative_matrix;"),
+            "{output}"
+        );
         let roundtrip = naga::front::wgsl::parse_str(&output)
             .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&output)));
         validator.validate(&roundtrip).unwrap();
