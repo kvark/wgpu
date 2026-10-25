@@ -249,6 +249,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 #### naga
 
+- Fix Metal cooperative matrix loads and stores through vector pointers, including stride conversion.
 - Reject unsigned integer arguments to WGSL `sign()` during Naga validation instead of allowing them to reach and panic in the SPIR-V backend. By @notferdon in [#10451](https://github.com/gfx-rs/wgpu/pull/10451).
 - Emit computed `coopStore` arguments before the store instruction, and validate pointer/stride expression availability.
 - Stop emitting explicit layout decorations on SPIR-V types used by workgroup and task-payload variables, fixing `VUID-StandaloneSpirv-None-10684`. Types also used by uniform/storage buffers get a separate undecorated declaration on SPIR-V 1.4+. By @kvark in [#9295](https://github.com/gfx-rs/wgpu/pull/9295).
