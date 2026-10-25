@@ -4,6 +4,92 @@ use naga::valid::{Capabilities, ValidationFlags, Validator};
 
 const SOURCE: &str = include_str!("../in/wgsl/fence-publication.wgsl");
 
+#[cfg(spv_out)]
+#[cfg_attr(miri, ignore)]
+#[test]
+fn remapped_storage_aliases_preserve_publication_accesses() {
+    use naga::back::spv;
+    use rspirv::binary::Disassemble;
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+
+    let module = naga::front::wgsl::parse_str(include_str!("fence_aliases.wgsl")).unwrap();
+    let info = Validator::new(ValidationFlags::all(), Capabilities::all())
+        .validate(&module)
+        .unwrap();
+    for alias in [false, true] {
+        for entry_point in [None, Some("publish"), Some("read_only")] {
+            let mut options = spv::Options {
+                lang_version: (1, 3),
+                use_vulkan_memory_model: true,
+                ..Default::default()
+            };
+            if alias {
+                options.binding_map.insert(
+                    naga::ResourceBinding {
+                        group: 0,
+                        binding: 1,
+                    },
+                    spv::BindingInfo {
+                        descriptor_set: 0,
+                        binding: 0,
+                        binding_array_size: Some(2),
+                    },
+                );
+            }
+            let pipeline = entry_point.map(|name| spv::PipelineOptions {
+                shader_stage: naga::ShaderStage::Compute,
+                entry_point: name.into(),
+            });
+            let words = spv::write_vec(&module, &info, &options, pipeline.as_ref()).unwrap();
+            let mut validator = Command::new("spirv-val")
+                .args(["--target-env", "vulkan1.3"])
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("install spirv-val and add it to PATH");
+            validator
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(bytemuck::cast_slice(&words))
+                .unwrap();
+            let result = validator.wait_with_output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let parsed = rspirv::dr::load_words(&words).unwrap();
+            let assembly = parsed.disassemble();
+            let written_alias = alias && entry_point != Some("read_only");
+            assert_eq!(
+                assembly.matches(" Aliased").count(),
+                if written_alias { 2 } else { 0 },
+                "{assembly}"
+            );
+            assert_eq!(
+                assembly.contains("NonWritable"),
+                !written_alias,
+                "{assembly}"
+            );
+            let loads: Vec<_> = parsed
+                .all_inst_iter()
+                .filter(|i| i.class.opcode == spirv::Op::Load)
+                .collect();
+            assert!(!loads.is_empty());
+            for load in loads {
+                let non_private = load.operands.iter().any(|operand| matches!(operand,
+                    rspirv::dr::Operand::MemoryAccess(access) if access.contains(spirv::MemoryAccess::NON_PRIVATE_POINTER)
+                ));
+                assert_eq!(non_private, written_alias, "{assembly}");
+            }
+        }
+    }
+}
+
 #[test]
 fn memory_fences_require_ir_capability_and_reject_unsupported_metal() {
     let source = SOURCE.replace("@coherent ", "");

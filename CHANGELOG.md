@@ -46,6 +46,8 @@ Bottom level categories:
 
 #### Naga
 
+- Preserve aliasing and shared writes when native SPIR-V binding remapping maps
+  multiple storage-buffer declarations to one descriptor binding.
 - Validate the memory-fence capability in IR and reject unsupported Metal fences
   instead of silently replacing them with threadgroup barriers.
 - Reject SPIR-V non-private/availability/visibility access operands that the

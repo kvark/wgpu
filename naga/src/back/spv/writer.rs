@@ -3785,6 +3785,7 @@ impl Writer {
         &mut self,
         ir_module: &crate::Module,
         global_variable: &crate::GlobalVariable,
+        binding_access: Option<crate::StorageAccess>,
     ) -> Result<Word, Error> {
         use spirv::Decoration;
 
@@ -3825,7 +3826,7 @@ impl Writer {
         }
 
         let storage_access = match global_variable.space {
-            crate::AddressSpace::Storage { access } => Some(access),
+            crate::AddressSpace::Storage { access } => Some(binding_access.unwrap_or(access)),
             _ => match ir_module.types[global_variable.ty].inner {
                 crate::TypeInner::Image {
                     class: crate::ImageClass::Storage { access, .. },
@@ -4201,6 +4202,39 @@ impl Writer {
             }
         }
 
+        // Native binding remapping may give distinct typed declarations the
+        // same descriptor. Such declarations alias, and writes through any one
+        // of them invalidate immutable/private access assumptions for all.
+        // Keep the IR's distinct bindings so ordinary validation is unchanged.
+        let mut storage_bindings = crate::FastHashMap::default();
+        let uses = |handle| match ep_index {
+            Some(index) => mod_info.get_entry_point(index)[handle],
+            None => (0..ir_module.entry_points.len())
+                .fold(crate::valid::GlobalUse::empty(), |uses, index| {
+                    uses | mod_info.get_entry_point(index)[handle]
+                }),
+        };
+        for (handle, var) in ir_module.global_variables.iter() {
+            if ep_index.is_some() && uses(handle).is_empty() {
+                continue;
+            }
+            if let crate::AddressSpace::Storage { access } = var.space {
+                if let Some(ref binding) = var.binding {
+                    let target = self.resolve_resource_binding(binding)?;
+                    let entry = storage_bindings
+                        .entry((target.descriptor_set, target.binding))
+                        .or_insert((
+                            0u32,
+                            crate::StorageAccess::empty(),
+                            crate::valid::GlobalUse::empty(),
+                        ));
+                    entry.0 += 1;
+                    entry.1 |= access;
+                    entry.2 |= uses(handle);
+                }
+            }
+        }
+
         // write all global variables
         for (handle, var) in ir_module.global_variables.iter() {
             // If a single entry point was specified, only write `OpVariable` instructions
@@ -4211,16 +4245,25 @@ impl Writer {
                     GlobalVariable::dummy()
                 }
                 _ => {
-                    let id = self.write_global_variable(ir_module, var)?;
-                    let writes = |index| {
-                        mod_info.get_entry_point(index)[handle].intersects(
-                            crate::valid::GlobalUse::WRITE | crate::valid::GlobalUse::ATOMIC,
-                        )
+                    let binding = if matches!(var.space, crate::AddressSpace::Storage { .. }) {
+                        var.binding
+                            .as_ref()
+                            .map(|binding| {
+                                self.resolve_resource_binding(binding).map(|target| {
+                                    storage_bindings[&(target.descriptor_set, target.binding)]
+                                })
+                            })
+                            .transpose()?
+                    } else {
+                        None
                     };
-                    let written = match ep_index {
-                        Some(index) => writes(index),
-                        None => (0..ir_module.entry_points.len()).any(writes),
-                    };
+                    let id = self.write_global_variable(ir_module, var, binding.map(|b| b.1))?;
+                    if binding.is_some_and(|b| b.0 > 1) {
+                        self.decorate(id, spirv::Decoration::Aliased, &[]);
+                    }
+                    let written = binding.map_or_else(|| uses(handle), |b| b.2).intersects(
+                        crate::valid::GlobalUse::WRITE | crate::valid::GlobalUse::ATOMIC,
+                    );
                     GlobalVariable::new(id, written)
                 }
             };
