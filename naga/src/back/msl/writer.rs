@@ -383,7 +383,7 @@ impl Display for TypeContext<'_> {
                         // Textures and samplers stay as plain values inside the wrapper.
                         write!(
                             out,
-                            "device {ARGUMENT_BUFFER_WRAPPER_STRUCT}<device {base_tyname}*>*"
+                            "constant {ARGUMENT_BUFFER_WRAPPER_STRUCT}<device {base_tyname}*>*"
                         )
                     }
                     _ => {
@@ -475,11 +475,31 @@ impl TypedGlobalVariable<'_> {
             }
         };
 
-        let ty = format!(
+        let mut ty = format!(
             "{volatile}{coherent}{space}{}{ty_name}{}{access}{reference}",
             if space.is_empty() { "" } else { " " },
             if access.is_empty() { "" } else { " " },
         );
+
+        if var
+            .memory_decorations
+            .contains(crate::MemoryDecorations::COHERENT)
+        {
+            if let crate::TypeInner::BindingArray { base, .. } = self.module.types[var.ty].inner {
+                if matches!(
+                    self.module.types[base].inner,
+                    crate::TypeInner::Struct { .. }
+                ) {
+                    let base_tyname = TypeContext {
+                        handle: base,
+                        ..ty_name
+                    };
+                    ty = format!(
+                        "constant {ARGUMENT_BUFFER_WRAPPER_STRUCT}<coherent device {base_tyname}*>*"
+                    );
+                }
+            }
+        }
 
         TypedGlobalVariableParts {
             ty_name: ty,
@@ -4152,10 +4172,23 @@ impl<W: Write> Writer<W> {
                 crate::Statement::ControlBarrier(flags) => {
                     self.write_barrier(flags, level)?;
                 }
-                crate::Statement::MemoryBarrier(_) => {
-                    return Err(Error::CapabilityNotSupported(
-                        valid::Capabilities::MEMORY_FENCE,
-                    ));
+                crate::Statement::MemoryBarrier(flags) => {
+                    if context.expression.lang_version < (3, 2) {
+                        return Err(Error::CapabilityNotSupported(
+                            valid::Capabilities::MEMORY_FENCE,
+                        ));
+                    }
+                    for (flag, memory, scope) in [
+                        (crate::Barrier::STORAGE, "mem_device", "device"),
+                        (crate::Barrier::WORK_GROUP, "mem_threadgroup", "threadgroup"),
+                        (crate::Barrier::SUB_GROUP, "mem_threadgroup", "simdgroup"),
+                        (crate::Barrier::TEXTURE, "mem_texture", "device"),
+                    ] {
+                        if flags.contains(flag) {
+                            // macOS 15 compilers lack acquire/release fence orders.
+                            writeln!(self.out, "{level}{NAMESPACE}::atomic_thread_fence({NAMESPACE}::mem_flags::{memory}, {NAMESPACE}::memory_order_seq_cst, {NAMESPACE}::thread_scope_{scope});")?;
+                        }
+                    }
                 }
                 crate::Statement::Store { pointer, value } => {
                     self.put_store(pointer, value, level, context)?

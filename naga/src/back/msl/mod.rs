@@ -880,7 +880,7 @@ pub fn supported_capabilities() -> crate::valid::Capabilities {
         // No DRAW_INDEX
         | Caps::MEMORY_DECORATION_COHERENT
         | Caps::MEMORY_DECORATION_VOLATILE
-        // No MEMORY_FENCE until Apple-silicon MSL 3.2 fences are implemented.
+        | Caps::MEMORY_FENCE
         | Caps::LINEAR_INTERPOLATION
         | Caps::DEBUG_PRINTF
 }

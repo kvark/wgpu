@@ -38,7 +38,7 @@ fn memory_fences_require_ir_capability_and_reject_unsupported_metal() {
         .validate(&module)
         .unwrap();
     #[cfg(msl_out)]
-    for version in [(2, 4), (3, 2)] {
+    for version in [(2, 4), (3, 1)] {
         let result = naga::back::msl::write_string(
             &module,
             &info,
@@ -56,6 +56,82 @@ fn memory_fences_require_ir_capability_and_reject_unsupported_metal() {
         ));
     }
     let _ = info;
+}
+
+#[cfg(msl_out)]
+#[test]
+fn metal_32_fences_publish_coherent_storage_without_rendezvous() {
+    let source = SOURCE.replace(
+        "workgroupBarrier();",
+        "workgroupFence(); workgroupBarrier();",
+    );
+    let module = naga::front::wgsl::parse_str(&source).unwrap();
+    let info = Validator::new(
+        ValidationFlags::all(),
+        naga::back::msl::supported_capabilities(),
+    )
+    .validate(&module)
+    .unwrap();
+    let (source, _) = naga::back::msl::write_string(
+        &module,
+        &info,
+        &naga::back::msl::Options {
+            lang_version: (3, 2),
+            ..Default::default()
+        },
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(source.contains("coherent device"));
+    assert!(source.contains("atomic_thread_fence(metal::mem_flags::mem_device, metal::memory_order_seq_cst, metal::thread_scope_device)"));
+    assert!(source.contains("atomic_thread_fence(metal::mem_flags::mem_threadgroup, metal::memory_order_seq_cst, metal::thread_scope_threadgroup)"));
+    assert!(!source.contains("threadgroup_barrier(metal::mem_flags::mem_device)"));
+    assert!(source.contains("memory_order_relaxed"));
+}
+
+#[cfg(msl_out)]
+#[test]
+fn metal_coherent_buffer_array_qualifies_pointees_not_the_table() {
+    let module = naga::front::wgsl::parse_str(
+        r#"
+enable wgpu_binding_array;
+struct Data { values: array<u32> }
+@group(0) @binding(0) @coherent var<storage, read_write> buffers: binding_array<Data, 2>;
+fn load(i: u32) -> u32 { return buffers[i].values[0]; }
+@compute @workgroup_size(1) fn main() { buffers[1].values[0] = load(0); }
+"#,
+    )
+    .unwrap();
+    let info = Validator::new(
+        ValidationFlags::all(),
+        naga::back::msl::supported_capabilities(),
+    )
+    .validate(&module)
+    .unwrap();
+    let (source, _) = naga::back::msl::write_string(
+        &module,
+        &info,
+        &naga::back::msl::Options {
+            lang_version: (3, 2),
+            ..Default::default()
+        },
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(
+        source.contains("constant NagaArgumentBufferWrapper<coherent device Data*>*"),
+        "{source}"
+    );
+    assert!(naga::back::msl::write_string(
+        &module,
+        &info,
+        &naga::back::msl::Options {
+            lang_version: (3, 1),
+            ..Default::default()
+        },
+        &Default::default()
+    )
+    .is_err());
 }
 
 #[cfg(all(spv_out, feature = "wgsl-out"))]
