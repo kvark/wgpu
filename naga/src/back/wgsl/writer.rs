@@ -1854,6 +1854,25 @@ impl<W: Write> Writer<W> {
             } => {
                 let inner = func_ctx.resolve_type(expr, &module.types);
                 match *inner {
+                    TypeInner::CooperativeMatrix {
+                        columns,
+                        rows,
+                        scalar,
+                        role,
+                        scope,
+                    } => {
+                        let target = TypeInner::CooperativeMatrix {
+                            columns,
+                            rows,
+                            scalar: crate::Scalar {
+                                kind,
+                                width: convert.unwrap_or(scalar.width),
+                            },
+                            role,
+                            scope,
+                        };
+                        self.write_type_resolution(module, &proc::TypeResolution::Value(target))?;
+                    }
                     TypeInner::Matrix {
                         columns,
                         rows,

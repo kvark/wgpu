@@ -1363,6 +1363,16 @@ impl super::Validator {
                         scalar
                     }
                     crate::TypeInner::Matrix { scalar, .. } => scalar,
+                    crate::TypeInner::CooperativeMatrix { scalar, .. } => {
+                        // Cooperative matrices convert between floating-point
+                        // component types only (`OpFConvert`), keeping their
+                        // shape, role and scope.
+                        let float = |kind| matches!(kind, Sk::Float | Sk::BFloat);
+                        if convert.is_none() || !float(scalar.kind) || !float(kind) {
+                            return Err(ExpressionError::InvalidCastArgument);
+                        }
+                        scalar
+                    }
                     _ => return Err(ExpressionError::InvalidCastArgument),
                 };
                 if base_scalar.kind == Sk::BFloat || kind == Sk::BFloat {

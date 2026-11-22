@@ -2390,6 +2390,7 @@ impl BlockContext<'_> {
         let (src_scalar, src_size) = match *ty {
             crate::TypeInner::Scalar(scalar) => (scalar, None),
             crate::TypeInner::Vector { scalar, size } => (scalar, Some(size)),
+            crate::TypeInner::CooperativeMatrix { scalar, .. } => (scalar, None),
             ref other => {
                 log::error!("As source {other:?}");
                 return Err(Error::Validation("Unexpected Expression::As source"));

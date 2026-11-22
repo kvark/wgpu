@@ -263,6 +263,42 @@ impl<'source> Lowerer<'source, '_> {
                 };
             }
 
+            // Cooperative matrix component conversion, keeping size, role and scope.
+            (
+                Components::One {
+                    component,
+                    ty_inner:
+                        &crate::TypeInner::CooperativeMatrix {
+                            columns: src_columns,
+                            rows: src_rows,
+                            role: src_role,
+                            scope: src_scope,
+                            ..
+                        },
+                    ..
+                },
+                Constructor::Type((
+                    _,
+                    &crate::TypeInner::CooperativeMatrix {
+                        columns: dst_columns,
+                        rows: dst_rows,
+                        role: dst_role,
+                        scope: dst_scope,
+                        scalar: dst_scalar,
+                    },
+                )),
+            ) if dst_columns == src_columns
+                && dst_rows == src_rows
+                && dst_role == src_role
+                && dst_scope == src_scope =>
+            {
+                expr = crate::Expression::As {
+                    expr: component,
+                    kind: dst_scalar.kind,
+                    convert: Some(dst_scalar.width),
+                };
+            }
+
             // Matrix conversion (matrix -> matrix) - partial
             (
                 Components::One {

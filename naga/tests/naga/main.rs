@@ -1,4 +1,5 @@
 mod bf16;
+mod cooperative_convert;
 mod cooperative_store;
 mod example_wgsl;
 mod memory_fence;
